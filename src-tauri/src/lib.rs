@@ -477,6 +477,7 @@ fn toggle_tick(date: String, database: State<'_, Database>) -> CommandResult<Mon
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let connection =
                 open_database(app.handle()).map_err(|error| std::io::Error::other(error))?;

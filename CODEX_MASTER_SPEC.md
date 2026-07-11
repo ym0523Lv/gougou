@@ -308,6 +308,42 @@ assets/              # 仅被引用的图片
 
 ### 后续阶段
 
-- PHASE 3：图片选择、资源引用表、缩略图、完整备份与导入。
-- PHASE 4：原生本地提醒、生物识别锁、主题和辅助功能。
-- PHASE 5：Android/iOS 真机、迁移、后台恢复、性能与发布验收。
+### PHASE 3：图片资产与引用完整性（当前允许执行的阶段）
+
+#### 范围与边界
+
+1. 使用官方 Tauri dialog 插件的系统图片选择器。前端只可请求 `pickerMode: "image"`、`fileAccessMode: "copy"` 和 PNG/JPEG/WebP 过滤条件；不启用前端文件系统插件或任意路径读取能力。
+2. 图片选择器先将资源复制至应用沙盒，前端仅将该受控路径传给 `import_image`。Rust 校验路径位于应用临时目录、文件大小、魔数、MIME、扩展名和解码尺寸后，才复制为 `{app_data_dir}/assets/{uuid}.{ext}`。
+3. v1 图片上限：单图 10 MiB、解码像素不超过 20 MP、任一边不超过 4096 px。导入成功后生成最长边 512 px 的 WebP 缩略图，命名为 `{uuid}.thumb.webp`；图片复制、解码与缩略图生成不得持有数据库锁。
+4. Markdown 仅写入 `assets/{uuid}.{ext}` 相对路径。Tiptap 图片节点只能插入由 `import_image` 返回的相对路径；不接受 base64、`file://`、网络 URL 或其他本地路径。
+5. 注册只读 `gougou-asset://` 受控协议：仅能解析符合 UUID 文件名规则的应用资产。编辑器预览将相对路径转换为该协议 URL，前端不得构造任意文件路径。
+6. 本阶段实现图片按钮、图片预览和删除图片 Markdown 节点；不实现图片裁剪、相册管理、OCR、网络图片、导出或完整备份。
+
+#### 数据库与 IPC
+
+1. `import_image(source_path: String) -> Result<AssetDetail, CommandError>` 仅接受 dialog 复制到 `{app_data_dir}/tmp/` 的暂存路径，返回 `asset_name`、`mime_type`、`width`、`height` 与受控预览 URL；所有错误不得回显原路径。
+2. `save_entry` 在同一 SQLite 事务中解析 Markdown 的受限图片语法并替换 `entry_assets` 引用。任何不符合 `assets/{uuid}.{png|jpg|jpeg|webp}` 的图片路径均拒绝保存，不能静默保留。
+3. 仅在事务提交后回收 `entry_assets` 已无任何引用且不在当前编辑暂存集内的原图和缩略图。应用启动时只清理超过 24 小时且未引用的暂存文件；不得扫描或删除应用沙盒外文件。
+4. 正文变为空且未打勾时，先在同一事务删除其资产引用，再删除条目，最后执行安全回收。多篇日记引用同一图片时，删除其中一篇不得影响另一篇。
+
+#### 验收
+
+1. Android/iOS/桌面均通过系统选择器导入 PNG、JPEG 或 WebP；Android `content://` 经 copy 模式进入应用沙盒后再处理。
+2. MIME、文件魔数、扩展名、大小或尺寸不符合限制的资源被拒绝，原图不会进入 `assets/`，界面只显示低打扰错误。
+3. 图片 Markdown 仅含相对路径，渲染只使用 `gougou-asset://`；伪造相对路径、`file://`、网络 URL 和 base64 均被拒绝。
+4. 保存、重新打开、删除图片与删除整篇未打勾日记后，`entry_assets` 与文件系统保持一致；共享资源仅在最后一个引用删除后回收。
+5. Rust 单元测试覆盖受限路径、魔数、引用提取、共享引用回收与删除事务；前端类型检查及 Tauri 调试构建通过。
+
+#### PHASE 3 禁止提前实现
+
+- 完整备份/导入、相册浏览器、图片裁剪/OCR、网络图片、提醒、隐私锁、主题设置、云端能力。
+
+#### PHASE 3 结束条件
+
+完成上述范围并通过针对性验证后立即停止，输出：`Phase 3 Assets Ready for Review`。
+
+### 后续阶段
+
+- PHASE 4：完整备份与导入（ZIP 校验、合并、替换回滚）。
+- PHASE 5：原生本地提醒、生物识别锁、主题和辅助功能。
+- PHASE 6：Android/iOS 真机、迁移、后台恢复、性能与发布验收。
