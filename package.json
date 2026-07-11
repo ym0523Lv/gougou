@@ -11,17 +11,23 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tiptap/extension-task-item": "^3.27.3",
+    "@tiptap/extension-task-list": "^3.27.3",
+    "@tiptap/markdown": "^3.27.3",
+    "@tiptap/pm": "^3.27.3",
+    "@tiptap/react": "^3.27.3",
+    "@tiptap/starter-kit": "^3.27.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "@tauri-apps/cli": "^2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.6.0",
+    "tailwindcss": "^4.1.12",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "@tauri-apps/cli": "^2",
-    "@tailwindcss/vite": "^4.1.12",
-    "tailwindcss": "^4.1.12"
+    "vite": "^7.0.4"
   }
 }

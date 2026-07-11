@@ -5,7 +5,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{params, Connection};
+use pulldown_cmark::{Event, Parser};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
@@ -14,7 +15,7 @@ const SCHEMA_VERSION: i64 = 1;
 
 struct Database(Mutex<Connection>);
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MonthEntrySummary {
     entry_date: String,
@@ -23,7 +24,19 @@ struct MonthEntrySummary {
     updated_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EntryDetail {
+    exists: bool,
+    entry_date: String,
+    content_md: String,
+    word_count: i64,
+    revision: i64,
+    is_ticked: bool,
+    updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
 struct CommandError {
     code: &'static str,
     message: &'static str,
@@ -43,6 +56,27 @@ impl CommandError {
         Self {
             code: "database_error",
             message: "本地数据暂时无法读取，请稍后重试。",
+        }
+    }
+
+    const fn invalid_revision() -> Self {
+        Self {
+            code: "invalid_revision",
+            message: "保存版本无效。",
+        }
+    }
+
+    const fn content_too_large() -> Self {
+        Self {
+            code: "content_too_large",
+            message: "这篇记录太长了，请分成几次写。",
+        }
+    }
+
+    const fn revision_conflict() -> Self {
+        Self {
+            code: "revision_conflict",
+            message: "这篇记录已有更新，请重新打开后再试。",
         }
     }
 }
@@ -187,6 +221,84 @@ fn now_unix_seconds() -> Result<i64, CommandError> {
         .map_err(|_| CommandError::database())
 }
 
+fn empty_entry_detail(date: String) -> EntryDetail {
+    EntryDetail {
+        exists: false,
+        entry_date: date,
+        content_md: String::new(),
+        word_count: 0,
+        revision: 0,
+        is_ticked: false,
+        updated_at: 0,
+    }
+}
+
+fn is_cjk_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{3040}'..='\u{30FF}'
+            | '\u{AC00}'..='\u{D7AF}'
+    )
+}
+
+fn word_count(markdown: &str) -> i64 {
+    let mut count = 0;
+    let mut in_latin_word = false;
+
+    for event in Parser::new(markdown) {
+        let text = match event {
+            Event::Text(text) | Event::Code(text) => text,
+            Event::SoftBreak | Event::HardBreak => {
+                in_latin_word = false;
+                continue;
+            }
+            _ => continue,
+        };
+
+        for character in text.chars() {
+            if is_cjk_character(character) {
+                count += 1;
+                in_latin_word = false;
+            } else if character.is_ascii_alphanumeric() {
+                if !in_latin_word {
+                    count += 1;
+                    in_latin_word = true;
+                }
+            } else {
+                in_latin_word = false;
+            }
+        }
+    }
+
+    count
+}
+
+fn read_entry_detail(connection: &Connection, date: String) -> CommandResult<EntryDetail> {
+    let requested_date = date.clone();
+    let detail = connection
+        .query_row(
+            "SELECT entry_date, content_md, word_count, revision, is_ticked, updated_at
+             FROM entries WHERE entry_date = ?1",
+            params![date],
+            |row| {
+                Ok(EntryDetail {
+                    exists: true,
+                    entry_date: row.get(0)?,
+                    content_md: row.get(1)?,
+                    word_count: row.get(2)?,
+                    revision: row.get(3)?,
+                    is_ticked: row.get::<_, i64>(4)? != 0,
+                    updated_at: row.get(5)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|_| CommandError::database())?;
+    Ok(detail.unwrap_or_else(|| empty_entry_detail(requested_date)))
+}
+
 #[tauri::command]
 fn get_month_entries(
     month: String,
@@ -216,6 +328,114 @@ fn get_month_entries(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| CommandError::database())?;
     Ok(summaries)
+}
+
+#[tauri::command]
+fn get_entry_detail(date: String, database: State<'_, Database>) -> CommandResult<EntryDetail> {
+    if !valid_date(&date) {
+        return Err(CommandError::invalid_date());
+    }
+
+    let connection = database.0.lock().map_err(|_| CommandError::database())?;
+    read_entry_detail(&connection, date)
+}
+
+fn save_entry_to_database(
+    connection: &mut Connection,
+    date: String,
+    content_md: String,
+    expected_revision: i64,
+) -> CommandResult<EntryDetail> {
+    if !valid_date(&date) {
+        return Err(CommandError::invalid_date());
+    }
+    if expected_revision < 0 {
+        return Err(CommandError::invalid_revision());
+    }
+    if content_md.len() > 200_000 {
+        return Err(CommandError::content_too_large());
+    }
+
+    let now = now_unix_seconds()?;
+    let content_word_count = word_count(&content_md);
+    let transaction = connection
+        .transaction()
+        .map_err(|_| CommandError::database())?;
+    let existing = transaction
+        .query_row(
+            "SELECT is_ticked, revision FROM entries WHERE entry_date = ?1",
+            params![date],
+            |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .map_err(|_| CommandError::database())?;
+
+    match existing {
+        Some((is_ticked, revision)) => {
+            if revision != expected_revision {
+                return Err(CommandError::revision_conflict());
+            }
+            if content_md.is_empty() && !is_ticked {
+                transaction
+                    .execute(
+                        "DELETE FROM entries WHERE entry_date = ?1 AND revision = ?2",
+                        params![date, expected_revision],
+                    )
+                    .map_err(|_| CommandError::database())?;
+                transaction.commit().map_err(|_| CommandError::database())?;
+                return Ok(empty_entry_detail(date));
+            }
+
+            let changed = transaction
+                .execute(
+                    "UPDATE entries
+                     SET content_md = ?1, word_count = ?2, revision = revision + 1, updated_at = ?3
+                     WHERE entry_date = ?4 AND revision = ?5",
+                    params![content_md, content_word_count, now, date, expected_revision],
+                )
+                .map_err(|_| CommandError::database())?;
+            if changed != 1 {
+                return Err(CommandError::revision_conflict());
+            }
+        }
+        None => {
+            if expected_revision != 0 {
+                return Err(CommandError::revision_conflict());
+            }
+            if content_md.is_empty() {
+                transaction.commit().map_err(|_| CommandError::database())?;
+                return Ok(empty_entry_detail(date));
+            }
+
+            transaction
+                .execute(
+                    "INSERT INTO entries (id, entry_date, content_md, word_count, revision, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        date,
+                        content_md,
+                        content_word_count,
+                        now
+                    ],
+                )
+                .map_err(|_| CommandError::database())?;
+        }
+    }
+
+    transaction.commit().map_err(|_| CommandError::database())?;
+    read_entry_detail(connection, date)
+}
+
+#[tauri::command]
+fn save_entry(
+    date: String,
+    content_md: String,
+    expected_revision: i64,
+    database: State<'_, Database>,
+) -> CommandResult<EntryDetail> {
+    let mut connection = database.0.lock().map_err(|_| CommandError::database())?;
+    save_entry_to_database(&mut connection, date, content_md, expected_revision)
 }
 
 #[tauri::command]
@@ -263,14 +483,29 @@ pub fn run() {
             app.manage(Database(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_month_entries, toggle_tick])
+        .invoke_handler(tauri::generate_handler![
+            get_month_entries,
+            get_entry_detail,
+            save_entry,
+            toggle_tick
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Gougou");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{month_range, valid_date};
+    use rusqlite::Connection;
+
+    use super::{
+        migrate, month_range, read_entry_detail, save_entry_to_database, valid_date, word_count,
+    };
+
+    fn test_connection() -> Connection {
+        let mut connection = Connection::open_in_memory().expect("open test database");
+        migrate(&mut connection).expect("migrate test database");
+        connection
+    }
 
     #[test]
     fn validates_civil_dates() {
@@ -290,5 +525,70 @@ mod tests {
             month_range("2026-12"),
             Some(("2026-12".into(), "2027-01".into()))
         );
+    }
+
+    #[test]
+    fn counts_visible_cjk_and_latin_words() {
+        assert_eq!(word_count("# 你好，hello 123\n\n世界"), 6);
+    }
+
+    #[test]
+    fn saves_with_revision_and_rejects_stale_content() {
+        let mut connection = test_connection();
+        let saved = save_entry_to_database(
+            &mut connection,
+            "2026-07-11".into(),
+            "你好，hello".into(),
+            0,
+        )
+        .expect("save entry");
+        assert!(saved.exists);
+        assert_eq!(saved.revision, 1);
+        assert_eq!(saved.word_count, 3);
+
+        let stale =
+            save_entry_to_database(&mut connection, "2026-07-11".into(), "旧内容".into(), 0)
+                .expect_err("reject stale revision");
+        assert_eq!(stale.code, "revision_conflict");
+    }
+
+    #[test]
+    fn removes_unticked_empty_entries_but_keeps_ticked_ones() {
+        let mut connection = test_connection();
+        let saved = save_entry_to_database(&mut connection, "2026-07-11".into(), "内容".into(), 0)
+            .expect("save entry");
+        let deleted = save_entry_to_database(
+            &mut connection,
+            "2026-07-11".into(),
+            String::new(),
+            saved.revision,
+        )
+        .expect("delete empty entry");
+        assert!(!deleted.exists);
+        assert_eq!(deleted.revision, 0);
+        assert!(
+            !read_entry_detail(&connection, "2026-07-11".into())
+                .expect("read empty entry")
+                .exists
+        );
+
+        let saved = save_entry_to_database(&mut connection, "2026-07-11".into(), "内容".into(), 0)
+            .expect("save entry again");
+        connection
+            .execute(
+                "UPDATE entries SET is_ticked = 1 WHERE entry_date = '2026-07-11'",
+                [],
+            )
+            .expect("tick entry");
+        let retained = save_entry_to_database(
+            &mut connection,
+            "2026-07-11".into(),
+            String::new(),
+            saved.revision,
+        )
+        .expect("retain ticked entry");
+        assert!(retained.exists);
+        assert!(retained.is_ticked);
+        assert_eq!(retained.content_md, "");
     }
 }

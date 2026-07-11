@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
+import { EditorView, type EntryDetail } from "./EditorView";
 import "./App.css";
 
 type MonthEntrySummary = {
@@ -13,6 +14,8 @@ type CalendarMonth = {
   year: number;
   month: number;
 };
+
+type Screen = "calendar" | "editor";
 
 function formatDate(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -50,6 +53,8 @@ function App() {
   const [entries, setEntries] = useState<Record<string, MonthEntrySummary>>({});
   const [status, setStatus] = useState("正在读取这个月的记录…");
   const [isToggling, setIsToggling] = useState(false);
+  const [screen, setScreen] = useState<Screen>("calendar");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -94,10 +99,50 @@ function App() {
     }
   }
 
+  function updateEntryFromEditor(entry: EntryDetail) {
+    setEntries((current) => {
+      if (!entry.exists) {
+        const next = { ...current };
+        delete next[entry.entryDate];
+        return next;
+      }
+      return {
+        ...current,
+        [entry.entryDate]: {
+          entryDate: entry.entryDate,
+          isTicked: entry.isTicked,
+          hasContent: entry.contentMd.length > 0,
+          updatedAt: entry.updatedAt,
+        },
+      };
+    });
+  }
+
+  function updateDraft(date: string, content?: string) {
+    setDrafts((current) => {
+      if (content !== undefined) return { ...current, [date]: content };
+      const next = { ...current };
+      delete next[date];
+      return next;
+    });
+  }
+
   const monthLabel = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "long",
   }).format(new Date(calendarMonth.year, calendarMonth.month - 1, 1));
+
+  if (screen === "editor") {
+    return (
+      <EditorView
+        targetDate={selectedDate}
+        initialDraft={drafts[selectedDate]}
+        onBack={() => setScreen("calendar")}
+        onEntrySaved={updateEntryFromEditor}
+        onDraftChange={(content) => updateDraft(selectedDate, content)}
+      />
+    );
+  }
 
   return (
     <main className="min-h-dvh bg-stone-50 px-5 pb-28 pt-[max(1.5rem,env(safe-area-inset-top))] text-stone-800">
@@ -175,7 +220,7 @@ function App() {
           </button>
           <button
             className="min-h-11 flex-1 rounded-xl border border-stone-300 px-4 font-medium text-stone-700"
-            onClick={() => setStatus("编辑器将在下一步接入。")}
+            onClick={() => setScreen("editor")}
           >
             写几句
           </button>

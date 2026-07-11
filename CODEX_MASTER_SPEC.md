@@ -1,4 +1,4 @@
-# GOUGOU（勾勾）主工程规范（v1.2）
+# GOUGOU（勾勾）主工程规范（v1.3）
 
 > 目标平台：Android（首发）与 iOS（同等架构准备）  
 > 技术栈：Tauri v2 + React 18 + TypeScript + TailwindCSS + Rust + rusqlite  
@@ -252,7 +252,7 @@ assets/              # 仅被引用的图片
 
 ## 9. 分期执行
 
-### PHASE 1：脚手架与数据库基础（当前唯一允许执行的阶段）
+### PHASE 1：脚手架与数据库基础（已完成）
 
 1. 初始化标准 Tauri v2 + React + TypeScript + TailwindCSS 工程结构。
 2. 实现 `src-tauri/src/db.rs`：启动时解析 `app_data_dir()`，创建数据库目录、执行首次建表与版本初始化。
@@ -271,9 +271,43 @@ assets/              # 仅被引用的图片
 
 完成上述范围并通过针对性验证后立即停止，输出：`Phase 1 Scaffold Ready for Review`。
 
+### PHASE 2：文本编辑与可靠保存（当前允许执行的阶段）
+
+#### 范围与边界
+
+1. 从 CalendarHome 的“写几句”进入 EditorView，并将所选 `targetDate` 以 `YYYY-MM-DD` 字符串锁定在编辑会话内；跨零点、切换月份或界面重渲染不得改变它。
+2. 使用 Tiptap React 与官方 `@tiptap/markdown` 配置确定的 Markdown 双向链路。仅启用并验证：段落、一级至三级标题、粗体、斜体、无序/有序列表、待办列表、引用、代码块和换行。
+3. 仅实现文本编辑。本阶段不安装媒体选择器、不写入 `entry_assets`、不启用图片插入或受控资源协议；图片功能保留到 PHASE 3。
+4. EditorView 提供返回、锁定日期、粗体、标题、列表、待办、撤销和重做。格式按钮必须在 `pointerdown` 阶段阻止自身夺取焦点，从而保持编辑选区。图片与导出菜单不在本阶段呈现。
+5. 编辑器停止输入 1500ms 后自动保存；`visibilitychange` 与 `pagehide` 尝试立即 flush。界面仅承诺尽力保存，不对系统强杀作绝对保证。
+6. 保存中、已保存和失败状态必须非阻塞可访问；失败时保留编辑缓冲并提供“重试”。离开 EditorView 时，若仍有未确认内容，先触发一次 flush；失败后仍允许返回，缓冲在当前应用会话内按日期保留，重新打开同日可重试，成功确认后清除。
+
+#### IPC 与数据一致性
+
+1. 新增 `get_entry_detail(date: String) -> Result<EntryDetail, CommandError>`。不存在的日期返回空 Markdown、字数 `0`、版本 `0`，不得为阅读而创建行。
+2. 新增 `save_entry(date: String, content_md: String, expected_revision: i64) -> Result<EntryDetail, CommandError>`。Rust 严格校验日期、版本非负与正文最大 `200_000` UTF-8 字节；字数由 Rust 根据 Markdown 可见文本计算，前端不得传入或写入 `word_count`。
+3. 保存采用条件写：已有条目仅当 `revision = expected_revision` 时更新正文、字数、版本和更新时间；首次文本保存仅允许 `expected_revision = 0`。不匹配时返回稳定的 `revision_conflict` 错误，绝不以旧内容覆盖新内容。
+4. `toggle_tick` 与正文保存只更新各自拥有的字段。正文变为空且未打勾时可删除空行；PHASE 2 尚无资源引用，因此删除不触及资源目录。
+5. `EntryDetail` 至少返回 `exists`、`entry_date`、`content_md`、`word_count`、`revision`、`is_ticked` 与 `updated_at`。非删除保存确认的版本必须大于请求版本；空白未打勾行被删除时返回 `exists: false, revision: 0`，前端据此重置下一次新建保存的版本。前端仅接受当前请求或更新请求的确认。
+
+#### 验收
+
+1. 进入任意日期后读取对应正文，跨零点保存仍写回原日期；返回月历后该日显示“有文字”状态。
+2. 连续输入只在停顿约 1500ms 后保存；页面隐藏与返回触发立即 flush；失败提示不遮挡编辑且可重试。
+3. 旧 `expected_revision` 被拒绝，较新的已确认内容不被覆盖；打勾与正文保存互不丢失对方字段。
+4. 空白未打勾条目被安全删除；空白但已打勾条目保留。
+5. Rust 单元测试覆盖日期锁定相关 IPC 参数、版本冲突、空行清理和字数计算；前端类型检查与 Tauri 调试构建通过。
+
+#### PHASE 2 禁止提前实现
+
+- 图片、系统媒体/文件选择器、`entry_assets` 写入、资产协议、导出、提醒、隐私锁、主题设置、导入导出、云端能力。
+
+#### PHASE 2 结束条件
+
+完成上述范围并通过针对性验证后立即停止，输出：`Phase 2 Editor Ready for Review`。
+
 ### 后续阶段
 
-- PHASE 2：EditorView、受限 Markdown、目标日期锁、自动保存和路由返回。
 - PHASE 3：图片选择、资源引用表、缩略图、完整备份与导入。
 - PHASE 4：原生本地提醒、生物识别锁、主题和辅助功能。
 - PHASE 5：Android/iOS 真机、迁移、后台恢复、性能与发布验收。
