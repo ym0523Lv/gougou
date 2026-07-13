@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
+import { BackupTestView } from "./BackupTestView";
 import { EditorView, type EntryDetail } from "./EditorView";
-import "./App.css";
+import { ipcErrorMessage } from "./ipcError";
+import { SettingsView } from "./SettingsView";
+import type { AppSettings } from "./settings";
 
 type MonthEntrySummary = {
   entryDate: string;
@@ -15,7 +18,7 @@ type CalendarMonth = {
   month: number;
 };
 
-type Screen = "calendar" | "editor";
+type Screen = "calendar" | "editor" | "settings" | "backup-test";
 
 function formatDate(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -43,12 +46,21 @@ function firstWeekdayOffset(year: number, month: number) {
   return (new Date(year, month - 1, 1).getDay() + 6) % 7;
 }
 
-function App() {
+function App({
+  initialTargetDate,
+  settings,
+  onSettingsChange,
+}: {
+  initialTargetDate?: string;
+  settings: AppSettings;
+  onSettingsChange: (settings: AppSettings) => void;
+}) {
   const today = useMemo(localToday, []);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const initialDate = initialTargetDate ?? today;
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth>(() => ({
-    year: Number(today.slice(0, 4)),
-    month: Number(today.slice(5, 7)),
+    year: Number(initialDate.slice(0, 4)),
+    month: Number(initialDate.slice(5, 7)),
   }));
   const [entries, setEntries] = useState<Record<string, MonthEntrySummary>>({});
   const [status, setStatus] = useState("正在读取这个月的记录…");
@@ -66,8 +78,10 @@ function App() {
         setEntries(Object.fromEntries(summaries.map((entry) => [entry.entryDate, entry])));
         setStatus("");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("暂时无法读取记录，请稍后重试。");
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus(ipcErrorMessage(error, "暂时无法读取记录，请稍后重试。"));
+        }
       });
 
     return () => {
@@ -92,8 +106,12 @@ function App() {
     try {
       const entry = await invoke<MonthEntrySummary>("toggle_tick", { date: selectedDate });
       setEntries((current) => ({ ...current, [entry.entryDate]: entry }));
-    } catch {
-      setStatus("这次没有保存成功，可以再试一次。");
+      if (settings.reminder.enabled) {
+        void invoke("sync_reminder", { reminder: settings.reminder });
+      }
+      if (settings.accessibility.haptics && "vibrate" in navigator) navigator.vibrate(15);
+    } catch (error) {
+      setStatus(ipcErrorMessage(error, "这次没有保存成功，可以再试一次。"));
     } finally {
       setIsToggling(false);
     }
@@ -127,6 +145,13 @@ function App() {
     });
   }
 
+  function moveCalendarMonth(amount: number) {
+    const next = shiftMonth(calendarMonth, amount);
+    const selectedDay = Math.min(Number(selectedDate.slice(8)), daysInMonth(next.year, next.month));
+    setCalendarMonth(next);
+    setSelectedDate(formatDate(next.year, next.month, selectedDay));
+  }
+
   const monthLabel = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "long",
@@ -144,6 +169,27 @@ function App() {
     );
   }
 
+  if (screen === "backup-test" && import.meta.env.DEV) {
+    return (
+      <BackupTestView
+        onBack={() => {
+          setScreen("calendar");
+          setCalendarMonth((current) => ({ ...current }));
+        }}
+      />
+    );
+  }
+
+  if (screen === "settings") {
+    return (
+      <SettingsView
+        onBack={() => setScreen("calendar")}
+        onSettingsChange={onSettingsChange}
+        settings={settings}
+      />
+    );
+  }
+
   return (
     <main className="min-h-dvh bg-stone-50 px-5 pb-28 pt-[max(1.5rem,env(safe-area-inset-top))] text-stone-800">
       <header className="mx-auto flex max-w-md items-center justify-between">
@@ -151,7 +197,18 @@ function App() {
           <p className="text-sm text-stone-500">勾勾</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">和今天打个招呼</h1>
         </div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm text-emerald-700">本地记录</span>
+        <div className="flex flex-col items-end gap-2">
+          <button className="min-h-11 rounded-xl border border-stone-300 px-3 text-sm font-medium" onClick={() => setScreen("settings")} type="button">设置</button>
+          {import.meta.env.DEV && (
+            <button
+              className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900"
+              onClick={() => setScreen("backup-test")}
+              type="button"
+            >
+              备份验收
+            </button>
+          )}
+        </div>
       </header>
 
       <section aria-label="月历" className="mx-auto mt-10 max-w-md">
@@ -159,7 +216,7 @@ function App() {
           <button
             aria-label="查看上个月"
             className="grid size-11 place-items-center rounded-full text-xl hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}
+            onClick={() => moveCalendarMonth(-1)}
           >
             ‹
           </button>
@@ -167,7 +224,7 @@ function App() {
           <button
             aria-label="查看下个月"
             className="grid size-11 place-items-center rounded-full text-xl hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}
+            onClick={() => moveCalendarMonth(1)}
           >
             ›
           </button>

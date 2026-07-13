@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.ym0523lv.gougou",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run web:dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
@@ -18,7 +18,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' gougou-asset: http://gougou-asset.localhost https://gougou-asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'",
+      "devCsp": null
     }
   },
   "bundle": {

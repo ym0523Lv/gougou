@@ -1,10 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { onBackButtonPress } from "@tauri-apps/api/app";
+import { open } from "@tauri-apps/plugin-dialog";
 import { EditorContent, useEditor } from "@tiptap/react";
+import Image from "@tiptap/extension-image";
+import { mergeAttributes } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ipcErrorMessage } from "./ipcError";
 
 export type EntryDetail = {
   exists: boolean;
@@ -14,6 +19,14 @@ export type EntryDetail = {
   revision: number;
   isTicked: boolean;
   updatedAt: number;
+};
+
+type AssetDetail = {
+  assetName: string;
+  previewUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
 };
 
 type SaveState = "loading" | "saved" | "unsaved" | "saving" | "failed";
@@ -26,12 +39,23 @@ type EditorViewProps = {
   onDraftChange: (content?: string) => void;
 };
 
+const AssetImage = Image.extend({
+  renderHTML({ HTMLAttributes }) {
+    const source = String(HTMLAttributes.src ?? "");
+    const previewSource = source.startsWith("assets/")
+      ? `gougou-asset://localhost/${source.slice("assets/".length)}`
+      : source;
+    return ["img", mergeAttributes(HTMLAttributes, { src: previewSource })];
+  },
+});
+
 const editorExtensions = [
   StarterKit.configure({
     heading: { levels: [1, 2, 3] },
   }),
   TaskList,
   TaskItem.configure({ nested: true }),
+  AssetImage,
   Markdown,
 ];
 
@@ -94,6 +118,7 @@ export function EditorView({
 }: EditorViewProps) {
   const [saveState, setSaveState] = useState<SaveState>("loading");
   const [loadError, setLoadError] = useState(false);
+  const [operationError, setOperationError] = useState("");
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const revisionRef = useRef(0);
   const latestContentRef = useRef("");
@@ -105,6 +130,10 @@ export function EditorView({
   const flushRef = useRef<() => Promise<void>>(async () => undefined);
   const scheduleSaveRef = useRef<(content: string) => void>(() => undefined);
   const initialDraftRef = useRef(initialDraft);
+  const onBackRef = useRef(onBack);
+  const returningRef = useRef(false);
+
+  onBackRef.current = onBack;
 
   const editor = useEditor({
     extensions: editorExtensions,
@@ -125,6 +154,7 @@ export function EditorView({
   const loadEntry = useCallback(async () => {
     setSaveState("loading");
     setLoadError(false);
+    setOperationError("");
     try {
       const detail = await invoke<EntryDetail>("get_entry_detail", { date: targetDate });
       const content = initialDraftRef.current ?? detail.contentMd;
@@ -134,8 +164,9 @@ export function EditorView({
       editor?.commands.setContent(content, { contentType: "markdown", emitUpdate: false });
       setSaveState(content === detail.contentMd ? "saved" : "unsaved");
       if (content !== detail.contentMd) scheduleSaveRef.current(content);
-    } catch {
+    } catch (error) {
       setLoadError(true);
+      setOperationError(ipcErrorMessage(error, "这篇记录暂时没有打开。"));
       setSaveState("failed");
     }
   }, [editor, targetDate]);
@@ -152,6 +183,9 @@ export function EditorView({
     if (loadError || latestContentRef.current === confirmedContentRef.current) return;
     if (savingRef.current) {
       await activeSaveRef.current;
+      if (latestContentRef.current !== confirmedContentRef.current) {
+        await flushRef.current();
+      }
       return;
     }
 
@@ -170,12 +204,15 @@ export function EditorView({
         if (requestId === latestRequestRef.current) {
           revisionRef.current = detail.revision;
           confirmedContentRef.current = contentToSave;
-          if (latestContentRef.current === contentToSave) onDraftChange();
+          const hasNewerContent = latestContentRef.current !== contentToSave;
+          if (!hasNewerContent) onDraftChange();
           onEntrySaved(detail);
-          setSaveState("saved");
+          setOperationError("");
+          setSaveState(hasNewerContent ? "unsaved" : "saved");
         }
-      } catch {
+      } catch (error) {
         if (requestId === latestRequestRef.current) {
+          setOperationError(ipcErrorMessage(error, "这次没有保存成功，可以再试一次。"));
           setSaveState("failed");
         }
       } finally {
@@ -192,6 +229,7 @@ export function EditorView({
     latestContentRef.current = content;
     onDraftChange(content);
     if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
+    setOperationError("");
     setSaveState("unsaved");
     saveTimerRef.current = window.setTimeout(() => {
       void flushRef.current();
@@ -227,9 +265,65 @@ export function EditorView({
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+    let listener: Awaited<ReturnType<typeof onBackButtonPress>> | undefined;
+    void onBackButtonPress(() => {
+      void returnToCalendar();
+    }).then((registered) => {
+      if (disposed) {
+        void registered.unregister();
+      } else {
+        listener = registered;
+      }
+    });
+    return () => {
+      disposed = true;
+      if (listener) void listener.unregister();
+    };
+  }, []);
+
   async function returnToCalendar() {
-    await flushRef.current();
-    onBack();
+    if (returningRef.current) return;
+    returningRef.current = true;
+    try {
+      await flushRef.current();
+      onBackRef.current();
+    } finally {
+      returningRef.current = false;
+    }
+  }
+
+  async function insertImage() {
+    try {
+      let asset: AssetDetail | null;
+      try {
+        asset = await invoke<AssetDetail | null>("pick_and_import_image");
+      } catch (error) {
+        if (
+          typeof error !== "object" ||
+          error === null ||
+          !("code" in error) ||
+          error.code !== "unsupported_platform"
+        ) {
+          throw error;
+        }
+        const sourcePath = await open({
+          multiple: false,
+          pickerMode: "image",
+          fileAccessMode: "copy",
+          filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp"] }],
+        });
+        if (!sourcePath || Array.isArray(sourcePath)) return;
+        asset = await invoke<AssetDetail>("import_image", { sourcePath });
+      }
+      if (!asset) return;
+      editor?.chain().focus().setImage({ src: asset.assetName }).run();
+      setOperationError("");
+    } catch (error) {
+      setOperationError(ipcErrorMessage(error, "图片暂时没有插入。"));
+      setSaveState("failed");
+    }
   }
 
   return (
@@ -255,7 +349,7 @@ export function EditorView({
       <section className="mx-auto max-w-2xl px-5 py-8">
         {loadError ? (
           <div className="rounded-2xl bg-amber-50 p-5 text-amber-900">
-            <p>这篇记录暂时没有打开。</p>
+            <p>{operationError || "这篇记录暂时没有打开。"}</p>
             <button className="mt-3 min-h-11 rounded-lg bg-amber-900 px-4 text-white" onClick={() => void loadEntry()} type="button">
               重试
             </button>
@@ -264,13 +358,16 @@ export function EditorView({
           <>
             <EditorContent editor={editor} />
             {saveState === "failed" && (
-              <button
-                className="mt-5 min-h-11 rounded-lg border border-amber-700 px-4 text-amber-800"
-                onClick={() => void flushRef.current()}
-                type="button"
-              >
-                重试保存
-              </button>
+              <div className="mt-5 text-amber-800">
+                {operationError && <p className="text-sm" role="alert">{operationError}</p>}
+                <button
+                  className="mt-3 min-h-11 rounded-lg border border-amber-700 px-4"
+                  onClick={() => void flushRef.current()}
+                  type="button"
+                >
+                  重试保存
+                </button>
+              </div>
             )}
           </>
         )}
@@ -286,6 +383,7 @@ export function EditorView({
           <ToolButton active={editor?.isActive("heading", { level: 2 })} label="标题" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} />
           <ToolButton active={editor?.isActive("bulletList")} label="列表" onClick={() => editor?.chain().focus().toggleBulletList().run()} />
           <ToolButton active={editor?.isActive("taskList")} label="待办" onClick={() => editor?.chain().focus().toggleTaskList().run()} />
+          <ToolButton label="图片" onClick={() => void insertImage()} />
           <ToolButton label="撤销" onClick={() => editor?.chain().focus().undo().run()} />
           <ToolButton label="重做" onClick={() => editor?.chain().focus().redo().run()} />
         </div>

@@ -1,4 +1,4 @@
-# GOUGOU（勾勾）主工程规范（v1.3）
+# GOUGOU（勾勾）主工程规范（v1.5）
 
 > 目标平台：Android（首发）与 iOS（同等架构准备）  
 > 技术栈：Tauri v2 + React 18 + TypeScript + TailwindCSS + Rust + rusqlite  
@@ -271,7 +271,7 @@ assets/              # 仅被引用的图片
 
 完成上述范围并通过针对性验证后立即停止，输出：`Phase 1 Scaffold Ready for Review`。
 
-### PHASE 2：文本编辑与可靠保存（当前允许执行的阶段）
+### PHASE 2：文本编辑与可靠保存（已实现，待完整端到端验收）
 
 #### 范围与边界
 
@@ -306,9 +306,18 @@ assets/              # 仅被引用的图片
 
 完成上述范围并通过针对性验证后立即停止，输出：`Phase 2 Editor Ready for Review`。
 
+#### PHASE 2 验收执行清单
+
+1. Rust：运行 `cargo test`，覆盖非法日期、版本冲突、空行删除、已打勾空条目保留和字数计算。
+2. 前端：运行 `npm run build` 与无打包 Tauri 调试构建，确认 TypeScript、Tiptap Markdown 序列化和 Rust IPC 可共同编译。
+3. 手动：选择非当日日期后进入编辑器，跨越零点再保存，返回月历后必须仍更新原 `targetDate`。
+4. 手动：连续输入后观察约 1500ms 保存；输入后立即切换后台、触发 `pagehide`、返回月历，重新打开确认已保存内容不倒退。
+5. 手动：人为让保存请求返回失败，确认编辑内容保留、显示非阻塞重试入口、重新进入同日仍可继续重试。
+6. Markdown：对承诺的标题、粗体、斜体、列表、待办、引用、代码块和换行进行“输入 → 保存 → 重开”往返检查；不承诺的复杂语法不得静默改写。
+
 ### 后续阶段
 
-### PHASE 3：图片资产与引用完整性（当前允许执行的阶段）
+### PHASE 3：图片资产与引用完整性（部分实现，待验收收尾）
 
 #### 范围与边界
 
@@ -342,8 +351,178 @@ assets/              # 仅被引用的图片
 
 完成上述范围并通过针对性验证后立即停止，输出：`Phase 3 Assets Ready for Review`。
 
+#### PHASE 3 验收执行清单
+
+1. Rust：为受控资产名、伪造 `file://`/网络/base64 路径、错误魔数、过大文件、过大解码尺寸、共享引用和最后引用删除补充单元测试。
+2. 前端构建：运行 `npm run build` 与无打包 Tauri 调试构建，确认 dialog、图片节点和受控协议共同编译。
+3. 桌面手动：依次导入 PNG、JPEG、WebP，确认 Markdown 仅保存 `assets/<uuid>.<ext>`，预览 URL 使用 `gougou-asset://`。
+4. 真机手动：Android 验证 `content://` 经 dialog `copy` 模式后可导入；iOS 验证系统图片选择器和沙盒副本可导入。两端均测试拒绝/取消选择。
+5. 数据一致性：让两个日期引用同一图片，删除其中一个引用后资源保留；删除最后一个引用后原图和缩略图被回收；重启后过期 `tmp/` 文件被清理。
+
 ### 后续阶段
 
-- PHASE 4：完整备份与导入（ZIP 校验、合并、替换回滚）。
-- PHASE 5：原生本地提醒、生物识别锁、主题和辅助功能。
-- PHASE 6：Android/iOS 真机、迁移、后台恢复、性能与发布验收。
+### PHASE 4：本地备份与导入事务（已实现，待端到端验收）
+
+#### 范围与边界
+
+1. 完整备份始终在本地生成 `gougou-backup-YYYYMMDD.zip`，包含 `manifest.json`、`entries.json` 与仅被引用的 `assets/`；不联网、不压缩上传、不自动分享。
+2. `manifest.json` 记录格式版本、导出时间、每个资源的 SHA-256 与大小。`entries.json` 仅包含 entries、entry_assets 和 user_settings 的结构化数据，不包含数据库文件或绝对路径。
+3. 导出与导入入口暂以受控 IPC 实现；系统保存/打开对话框和设置页 UI 在本阶段不实现，避免提前开放通用文件访问能力。
+4. 导入仅接受 `.zip`，先解压到 `{app_data_dir}/tmp/import-{uuid}`。验证 ZIP 条目数量、单条与总解压大小、路径穿越、manifest 格式版本、日期、资源名、哈希和条目引用后，才允许预览或写入。
+5. 本阶段提供两种已确认的写入策略：`merge_newer` 按 `updated_at` 比较同日条目，保留较新者；`replace_all` 在数据库事务与资产暂存准备成功后替换本地内容。两者任一失败均不得破坏现有数据。
+
+#### IPC 与一致性
+
+1. `export_backup() -> Result<BackupExport, CommandError>` 在数据库锁内读取一致的元数据快照，在锁外读取资源并写 ZIP；若发现引用资源缺失则失败且不产生半成品备份。
+2. `inspect_backup(source_path: String) -> Result<BackupPreview, CommandError>` 只验证和生成摘要，不写数据库、资产目录或设置；返回日期数、资源数、冲突数与一次性导入令牌，不返回日记正文。
+3. `apply_backup(import_token: String, mode: "merge_newer" | "replace_all") -> Result<BackupImport, CommandError>` 仅接受由 `inspect_backup` 产生且未过期的令牌。资源先复制到应用临时目录，数据库更新在单一事务完成，提交后才原子移动资源并回收不再引用的旧资源。
+4. 前端不得传入目标目录、SQL、数据库路径或任意 ZIP 内文件路径。所有错误使用稳定错误码，避免暴露备份绝对路径和日记内容。
+
+#### 验收
+
+1. 导出后可在空数据库导入并恢复 entries、settings 与被引用资源；未引用资源不进入 ZIP。
+2. 损坏 ZIP、路径穿越、错误哈希、超出大小限制、未知格式版本和错误令牌均被拒绝，既有数据保持不变。
+3. `merge_newer` 对同一日期只保留 `updated_at` 更新的条目；`replace_all` 需要调用端显式确认且失败可回滚。
+4. Rust 测试覆盖空备份、共享资源、损坏清单、冲突合并和替换失败回滚；前端类型检查及 Tauri 调试构建通过。
+
+#### PHASE 4 禁止提前实现
+
+- 自动云备份、后台同步、通用文件系统能力、设置页完整 UI、提醒、隐私锁、主题设置。
+
+#### PHASE 4 结束条件
+
+完成上述范围并通过针对性验证后立即停止，输出：`Phase 4 Backup Ready for Review`。
+
+#### 当前实施状态（2026-07-12）
+
+- PHASE 1：已实现并提交。月历、SQLite 初始化、月份摘要和原子打勾命令已存在。
+- PHASE 2：已实现并提交。EditorView、Markdown、1500ms 自动保存、生命周期 flush、草稿恢复、revision 条件写和 Android 系统返回键路由已存在；待补移动端端到端验收。
+- PHASE 3：已实现图片选择、Android `content://` 限流复制桥、导入校验、缩略图、受控协议、引用事务和保存后回收；待补 Android 真机选择/取消、异常资源与资源回收专项测试。
+- PHASE 4：已实现 export_backup、ZIP 资源 SHA-256 校验、inspect_backup/单次导入令牌、资源暂存与恢复、merge_newer、replace_all 文件系统回滚和专项单元测试；当前入口仍仅用于开发验收，待补端到端与发布交互设计。
+
+#### PHASE 4 已完成执行顺序
+
+1. 在 `inspect_backup` 解压到 `tmp/import-<uuid>/`，校验每个 manifest 资源的名称、大小、SHA-256 与 `entry_assets` 引用；会话保存临时目录和过期时间。
+2. 在 `apply_backup` 消费会话后，先将资源复制到新的临时资产目录；任何哈希、复制或格式失败都在写数据库前退出。
+3. 在单一 SQLite 事务中写 entries、settings 和选中条目的 `entry_assets`：`merge_newer` 仅替换较新的日期及其引用，`replace_all` 明确替换全部数据。
+4. 数据库提交成功后才原子移动临时资产；移动失败时使用预提交数据库快照回滚，并保留诊断性但不含日记内容的错误码。
+5. 提交后扫描未引用资源并回收；添加空备份、损坏 ZIP、哈希错误、共享资源、日期冲突、重复令牌、过期令牌与移动失败回滚测试。
+
+### PHASE 5：本地提醒、隐私锁、外观与辅助功能（已实现，进入真机验收）
+
+#### 范围与边界
+
+1. 新增正式设置页，分为提醒、隐私、数据、外观与辅助功能。设置页只展示真实能力状态，不可用平台不得伪造成功。
+2. `user_settings` 是业务设置的唯一事实来源。Android SharedPreferences 与 iOS UserDefaults 只保存由设置重建的原生调度缓存，原生代码不得读写 SQLite。
+3. 本阶段不增加账号、远程推送、分析 SDK、数据库加密、应用内密码、云备份或后台网络任务。
+4. Android 为首发实现；iOS 使用同一 Rust/TypeScript DTO 和插件接口，原生队列规则同时实现或明确返回 `unsupported`，不得静默失效。
+
+#### 设置模型与 IPC
+
+缺失键使用下列默认值，读取默认值不立即写库：
+
+```text
+reminder.enabled = false
+reminder.hour = 22
+reminder.minute = 0
+reminder.precise = false
+reminder.quiet_weekdays = []       # ISO 周一=1，周日=7
+reminder.paused_until = null       # YYYY-MM-DD，含当日
+privacy.lock_enabled = false
+appearance.theme = system          # system | light | dark
+accessibility.reduce_motion = false
+accessibility.haptics = true
+```
+
+1. `get_app_settings() -> AppSettings` 一次返回完整、已校验的设置快照。
+2. `update_app_settings(settings: AppSettings) -> AppSettings` 在单一 SQLite 事务中替换上述受控键；拒绝未知主题、越界时间、非法日期、重复或越界静默日。
+3. 原生能力通过 `ReminderStatus` 与 `BiometricStatus` 单独返回；业务设置中的“期望启用”不得与系统权限的“实际可用”混为一谈。
+4. 备份继续包含这些白名单设置。导入时未知设置键拒绝进入本地设置，防止任意键污染运行状态。
+
+#### 本地提醒插件契约
+
+1. 新建 `gougou-reminder` Tauri 移动插件。命令仅包含：`getStatus`、`requestPermission`、`syncSchedule`、`cancelAll`、`takeNotificationTarget`；不接收 Markdown、图片、数据库路径或 SQL。`takeNotificationTarget` 只允许单次消费通知携带的合法民用日期。
+2. `syncSchedule` 接收提醒时间、精确偏好、静默日、暂停日期、未来已打勾日期集合和通知文案。原生侧先取消旧队列，再建立可重建的新队列。
+3. Android 使用单次 AlarmManager 闹钟安排下一个合格日期。默认使用不精确 API；仅在用户主动开启且系统允许时使用精确 API，否则返回 `effectivePrecise=false` 并自动降级。闹钟触发后展示本地通知并安排下一次。
+4. Android 13+ 仅在用户点击开启提醒后请求 `POST_NOTIFICATIONS`。清单声明 `RECEIVE_BOOT_COMPLETED`；重启接收器只在已有启用缓存时恢复调度。
+5. iOS 使用 `UNUserNotificationCenter` 预排未来 30 天的单次通知；每次启动、设置修改或打勾后取消并补齐队列。
+6. 通知点击携带目标民用日期并打开应用；只导航到对应日期，不执行打勾或正文写入。
+7. 用户关闭提醒时先取消原生队列，再持久化关闭状态。权限拒绝或撤销时保留设置页恢复入口，但不得循环弹窗。
+
+#### 隐私锁
+
+1. 使用官方 Tauri biometric 插件，对 Android 调用 `BiometricPrompt`，对 iOS 调用 `LocalAuthentication`；允许系统设备凭据作为系统级回退。
+2. 开启隐私锁前必须完成一次成功验证，成功后才持久化 `privacy.lock_enabled=true`。关闭隐私锁同样需要验证。
+3. 应用冷启动时若已启用锁，只渲染不含日记摘要的锁屏。应用进入后台超过 30 秒或进程重新启动后再次锁定；短暂系统选择器切换不重复打断用户。
+4. 验证取消、失败或暂时锁定时保持锁屏并提供重试；不得通过错误回退展示日记内容。
+5. 设置页明确说明隐私锁只是应用访问门槛，不代表 SQLite 或备份文件已加密。
+
+#### 外观、动态字体与辅助功能
+
+1. 主题支持跟随系统、浅色和深色。启动健康检查完成前应用根节点即应用保存主题，避免先闪浅色再切换。
+2. `reduce_motion` 为真或系统声明 `prefers-reduced-motion: reduce` 时，禁用非必要 transition、平滑滚动和装饰动画。
+3. 字体使用相对单位并尊重 WebView 系统字体缩放；正文不设置不可缩放的固定像素字号，主要触控目标在放大字体后仍至少 44px。
+4. 触感反馈默认开启，只在用户主动打勾等确认动作触发；不因保存失败、提醒权限拒绝或普通导航震动。不支持平台直接无副作用降级。
+5. 所有开关包含可访问名称、说明和文本状态；焦点、错误和选中状态不得只靠颜色表达。
+
+#### 设置页交互
+
+1. 月历页提供明确的“设置”按钮。Android 系统返回从设置页回月历；锁屏时系统返回不绕过验证。
+2. 开启提醒的顺序固定为：用户点击 → 解释本地提醒 → 请求权限 → 同步原生队列 → 成功后保存设置。任一步失败均不显示为已开启。
+3. 时间、静默日、暂停一周和精确偏好修改后立即重新同步；忙碌期间禁用重复提交并显示低打扰状态。
+4. “数据”区域复用 Phase 4 的受控备份能力，不在 Phase 5 开放前端通用文件系统权限。
+
+#### 验收与测试
+
+1. Rust 单元测试覆盖设置默认值、完整往返、非法时间/日期/主题/静默日和导入设置白名单。
+2. 前端生产构建与 Tauri debug 构建通过；主题、减少动画、锁屏路由和设置失败恢复经过手动检查。
+3. Android 真机覆盖通知允许/拒绝/撤销、默认不精确、精确授权降级、重启恢复、静默日、暂停一周、当日打勾取消和通知点击日期。
+4. Android/iOS 真机覆盖生物识别成功、取消、失败、系统暂时锁定、后台 30 秒再次锁定和设备凭据回退。
+5. iOS 真机确认未来 30 天队列、打勾后取消对应日期、启动补齐和权限撤销状态。
+6. TalkBack/VoiceOver、200% 动态字体、深浅主题、系统减少动画、小屏与横屏完成发布前手动验收。
+
+#### PHASE 5 禁止提前实现
+
+- 数据库或备份加密、自定义 PIN、云推送、远程配置、提醒统计、主题商店、复杂自动化规则。
+
+#### PHASE 5 结束条件
+
+实现上述最小闭环并完成可自动验证项目后停止，输出：`Phase 5 Local Experience Ready for Device Review`。真机矩阵未完成前不得称为商店发布就绪。
+
+#### 当前实施状态（2026-07-13）
+
+- Rust 设置层、设置页、主题、减少动画、触感开关和隐私锁状态机已实现。
+- Android/iOS 本地提醒插件主体、桌面不支持降级和通知目标单次消费接口已实现。
+- 通知目标已接入应用启动流程：合法日期只定位对应月份和日期，不自动打开编辑器；读取失败降级为普通启动。
+- 前端生产构建、15 个 Rust 测试、Tauri debug 无打包构建、Rust 格式和差异空白检查已通过。
+- 当前达到 `Phase 5 Local Experience Ready for Device Review`；Android/iOS 原生编译及真机矩阵尚未完成，不能称为商店发布就绪。
+
+### PHASE 6：真机、生命周期、性能与发布验收（当前执行阶段）
+
+#### 范围与边界
+
+1. 本阶段以验证和修复 Phase 1–5 的既有能力为主，不新增账号、云同步、统计 SDK、加密声明或其他产品功能。
+2. Android 为首发验收平台；先完成原生 debug 编译和真机矩阵，再在 macOS/Xcode 环境完成 iOS 对等验收。
+3. 真机发现的问题采用最小修复，并补充能在本地自动执行的回归测试；不得为通过单一设备而放宽 IPC、文件路径或权限边界。
+4. 未真实执行的设备、系统版本、权限场景和商店流程必须明确记录为未验证，不得用桌面构建结果替代。
+
+#### 执行顺序
+
+1. 配置 Java、Android SDK/NDK 与 Rust Android targets，完成 Android debug 编译；检查 Kotlin 插件 API、参数反序列化、Manifest 合并、PendingIntent 和通知图标。
+2. Android 真机验证提醒权限允许/拒绝/撤销、不精确提醒、精确授权降级、静默日、暂停、当天打勾取消、重启恢复，以及冷启动和应用已运行时的通知目标导航。
+3. Android 真机验证生物识别成功、取消、失败、暂时锁定、设备凭据回退、冷启动锁屏和后台超过 30 秒重锁。
+4. 验证前台恢复时的提醒权限与精确闹钟状态刷新，并覆盖图片选择、自动保存、系统返回、备份导入导出等跨阶段回归。
+5. 完成 TalkBack、200% 动态字体、系统减少动画、深浅主题、小屏、横屏和安全区检查。
+6. 在 iOS 完成原生编译，并验证未来 30 条通知队列、权限撤销、通知点击、LocalAuthentication、VoiceOver、安全区和生命周期恢复。
+7. 验证首次安装、现有数据库启动、备份恢复失败回滚、后台恢复、主要列表与编辑器性能、Release 构建、签名权限和商店政策清单。
+
+#### 验收记录
+
+每个真机场景记录：平台与系统版本、设备或模拟器、操作步骤、预期结果、实际结果、日志或截图位置和结论。需要人工操作时提供逐步说明，不要求用户自行推断设置入口或成功标准。
+
+#### PHASE 6 结束条件
+
+1. Android 首发矩阵全部通过，iOS 对等能力全部通过或逐项明确阻塞原因。
+2. 自动测试、生产前端构建、Android/iOS Release 编译与数据库/备份回归通过。
+3. 权限、隐私声明、精确闹钟政策、签名与发布配置经过人工复核。
+4. 所有未完成项均有明确风险与后续负责人后，才可输出：`Phase 6 Release Candidate Ready for Review`。
