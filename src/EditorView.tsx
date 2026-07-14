@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { onBackButtonPress } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -43,7 +43,7 @@ const AssetImage = Image.extend({
   renderHTML({ HTMLAttributes }) {
     const source = String(HTMLAttributes.src ?? "");
     const previewSource = source.startsWith("assets/")
-      ? `gougou-asset://localhost/${source.slice("assets/".length)}`
+      ? convertFileSrc(source.slice("assets/".length), "gougou-asset")
       : source;
     return ["img", mergeAttributes(HTMLAttributes, { src: previewSource })];
   },
@@ -97,7 +97,7 @@ function ToolButton({
     <button
       aria-label={label}
       aria-pressed={active}
-      className={`grid min-h-11 min-w-11 place-items-center rounded-lg px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600 ${
+      className={`grid min-h-11 min-w-11 flex-1 place-items-center whitespace-nowrap rounded-lg px-1 text-[clamp(0.75rem,3.5vw,0.875rem)] font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600 ${
         active ? "bg-emerald-100 text-emerald-800" : "text-stone-700 hover:bg-stone-100"
       }`}
       onPointerDown={(event) => event.preventDefault()}
@@ -378,7 +378,7 @@ export function EditorView({
         className="fixed inset-x-0 z-20 border-t border-stone-200 bg-white/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur"
         style={{ bottom: keyboardOffset }}
       >
-        <div className="mx-auto flex max-w-2xl gap-1 overflow-x-auto">
+        <div className="mx-auto flex max-w-2xl gap-0.5 overflow-x-auto">
           <ToolButton active={editor?.isActive("bold")} label="粗体" onClick={() => editor?.chain().focus().toggleBold().run()} />
           <ToolButton active={editor?.isActive("heading", { level: 2 })} label="标题" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} />
           <ToolButton active={editor?.isActive("bulletList")} label="列表" onClick={() => editor?.chain().focus().toggleBulletList().run()} />

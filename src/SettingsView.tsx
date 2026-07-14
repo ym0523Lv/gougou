@@ -84,15 +84,33 @@ export function SettingsView({
   }, []);
 
   useEffect(() => {
-    void invoke<ReminderStatus>("get_reminder_status")
-      .then(setReminderStatus)
-      .catch(() => setReminderStatus({
-        supported: false,
-        permission: "unsupported",
-        exactAlarmAllowed: false,
-        effectivePrecise: false,
-        scheduledCount: 0,
-      }));
+    let disposed = false;
+    const refreshReminderStatus = () => {
+      if (document.visibilityState !== "visible") return;
+      void invoke<ReminderStatus>("get_reminder_status")
+        .then((next) => {
+          if (!disposed) setReminderStatus(next);
+        })
+        .catch(() => {
+          if (!disposed) {
+            setReminderStatus({
+              supported: false,
+              permission: "unsupported",
+              exactAlarmAllowed: false,
+              effectivePrecise: false,
+              scheduledCount: 0,
+            });
+          }
+        });
+    };
+    refreshReminderStatus();
+    document.addEventListener("visibilitychange", refreshReminderStatus);
+    window.addEventListener("focus", refreshReminderStatus);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", refreshReminderStatus);
+      window.removeEventListener("focus", refreshReminderStatus);
+    };
   }, []);
 
   async function persist(next: AppSettings) {

@@ -34,8 +34,16 @@ class ScheduleArgs {
     ]
 )
 class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
-    private fun status(): JSObject {
-        val status = ReminderScheduler.status(activity)
+    companion object {
+        private const val PREFS = "gougou-reminder"
+        private const val TARGET_DATE = "gougouTargetDate"
+        private const val LAST_EXACT_ALARM_ALLOWED = "lastExactAlarmAllowed"
+        private const val LAST_NOTIFICATIONS_ALLOWED = "lastNotificationsAllowed"
+    }
+
+    private fun status(
+        status: NativeReminderStatus = ReminderScheduler.status(activity),
+    ): JSObject {
         return JSObject().apply {
             put("supported", true)
             put("permission", status.permission)
@@ -45,9 +53,34 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    private fun reconcileSystemStatus(): NativeReminderStatus {
+        val preferences = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+        val currentStatus = ReminderScheduler.status(activity)
+        val notificationsAllowed = currentStatus.permission == "granted"
+        val previousNotifications = preferences.getBoolean(
+            LAST_NOTIFICATIONS_ALLOWED,
+            !notificationsAllowed,
+        )
+        val precise = preferences.getBoolean("precise", false)
+        val previousExactAlarm = preferences.getBoolean(
+            LAST_EXACT_ALARM_ALLOWED,
+            !currentStatus.exactAlarmAllowed,
+        )
+        val notificationsChanged = previousNotifications != notificationsAllowed
+        val exactAlarmChanged = precise && previousExactAlarm != currentStatus.exactAlarmAllowed
+        if (!notificationsChanged && !exactAlarmChanged) return currentStatus
+
+        preferences.edit()
+            .putBoolean(LAST_NOTIFICATIONS_ALLOWED, notificationsAllowed)
+            .putBoolean(LAST_EXACT_ALARM_ALLOWED, currentStatus.exactAlarmAllowed)
+            .apply()
+        ReminderScheduler.reschedule(activity)
+        return ReminderScheduler.status(activity)
+    }
+
     @Command
     fun getStatus(invoke: Invoke) {
-        invoke.resolve(status())
+        invoke.resolve(status(reconcileSystemStatus()))
     }
 
     @Command
@@ -58,6 +91,7 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(status())
             return
         }
+        ReminderScheduler.markNotificationPermissionRequested(activity)
         requestPermissionForAlias("notifications", invoke, "permissionResult")
     }
 
@@ -69,7 +103,8 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun syncSchedule(invoke: Invoke) {
         val args = invoke.parseArgs(ScheduleArgs::class.java)
-        val previousPrecise = activity.getSharedPreferences("gougou-reminder", Activity.MODE_PRIVATE)
+        val preferences = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+        val previousPrecise = preferences
             .getBoolean("precise", false)
         if (args.precise && !previousPrecise &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -83,7 +118,18 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
             )
         }
         ReminderScheduler.saveAndSchedule(activity, args)
-        invoke.resolve(status())
+        val currentStatus = ReminderScheduler.status(activity)
+        preferences.edit()
+            .putBoolean(LAST_EXACT_ALARM_ALLOWED, currentStatus.exactAlarmAllowed)
+            .putBoolean(LAST_NOTIFICATIONS_ALLOWED, currentStatus.permission == "granted")
+            .apply()
+        invoke.resolve(JSObject().apply {
+            put("supported", true)
+            put("permission", currentStatus.permission)
+            put("exactAlarmAllowed", currentStatus.exactAlarmAllowed)
+            put("effectivePrecise", currentStatus.effectivePrecise)
+            put("scheduledCount", currentStatus.scheduledCount)
+        })
     }
 
     @Command
@@ -92,10 +138,24 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(status())
     }
 
+    override fun onNewIntent(intent: Intent) {
+        intent.getStringExtra(TARGET_DATE)?.let { date ->
+            activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+                .edit().putString(TARGET_DATE, date).apply()
+        }
+    }
+
+    override fun onResume() {
+        reconcileSystemStatus()
+    }
+
     @Command
     fun takeNotificationTarget(invoke: Invoke) {
-        val date = activity.intent?.getStringExtra("gougouTargetDate")
-        activity.intent?.removeExtra("gougouTargetDate")
+        val preferences = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+        val date = preferences.getString(TARGET_DATE, null)
+            ?: activity.intent?.getStringExtra(TARGET_DATE)
+        preferences.edit().remove(TARGET_DATE).apply()
+        activity.intent?.removeExtra(TARGET_DATE)
         invoke.resolve(JSObject().apply { put("targetDate", date) })
     }
 }

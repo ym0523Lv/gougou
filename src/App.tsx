@@ -47,16 +47,16 @@ function firstWeekdayOffset(year: number, month: number) {
 }
 
 function App({
-  initialTargetDate,
+  notificationNavigation,
   settings,
   onSettingsChange,
 }: {
-  initialTargetDate?: string;
+  notificationNavigation?: { targetDate: string; requestId: number };
   settings: AppSettings;
   onSettingsChange: (settings: AppSettings) => void;
 }) {
   const today = useMemo(localToday, []);
-  const initialDate = initialTargetDate ?? today;
+  const initialDate = notificationNavigation?.targetDate ?? today;
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth>(() => ({
     year: Number(initialDate.slice(0, 4)),
@@ -67,6 +67,17 @@ function App({
   const [isToggling, setIsToggling] = useState(false);
   const [screen, setScreen] = useState<Screen>("calendar");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!notificationNavigation) return;
+    const { targetDate } = notificationNavigation;
+    setSelectedDate(targetDate);
+    setCalendarMonth({
+      year: Number(targetDate.slice(0, 4)),
+      month: Number(targetDate.slice(5, 7)),
+    });
+    setScreen("calendar");
+  }, [notificationNavigation]);
 
   useEffect(() => {
     let cancelled = false;

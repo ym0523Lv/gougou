@@ -28,11 +28,17 @@ object ReminderScheduler {
     private const val REQUEST_CODE = 27410
     private const val CHANNEL_ID = "evening-reminder"
     private const val NOTIFICATION_ID = 27411
+    private const val NOTIFICATION_PERMISSION_REQUESTED = "notificationPermissionRequested"
 
     fun notificationsAllowed(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
+
+    fun markNotificationPermissionRequested(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+    }
 
     private fun exactAllowed(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -43,8 +49,16 @@ object ReminderScheduler {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val precise = prefs.getBoolean("precise", false)
         val exactAllowed = exactAllowed(context)
+        val notificationsAllowed = notificationsAllowed(context)
+        if (notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            prefs.edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        }
         return NativeReminderStatus(
-            permission = if (notificationsAllowed(context)) "granted" else "prompt",
+            permission = when {
+                notificationsAllowed -> "granted"
+                prefs.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false) -> "denied"
+                else -> "prompt"
+            },
             exactAlarmAllowed = exactAllowed,
             effectivePrecise = precise && exactAllowed,
             scheduledCount = if (prefs.getBoolean("scheduled", false)) 1 else 0,
@@ -74,6 +88,11 @@ object ReminderScheduler {
         if (clearConfiguration) editor.clear()
         editor.apply()
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+
+    fun reschedule(context: Context) {
+        cancelAlarm(context)
+        scheduleNext(context)
     }
 
     fun scheduleNext(context: Context) {

@@ -16,6 +16,7 @@ type HealthStatus = {
 
 type BiometricPlatformStatus = { supported: boolean };
 type NotificationTarget = { targetDate: string | null };
+type NotificationNavigation = { targetDate: string; requestId: number };
 
 function BrowserNotice() {
   return (
@@ -37,7 +38,7 @@ function TauriApp() {
   const [health, setHealth] = useState<"checking" | "ready" | "failed">("checking");
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<AppSettings>();
-  const [initialTargetDate, setInitialTargetDate] = useState<string>();
+  const [notificationNavigation, setNotificationNavigation] = useState<NotificationNavigation>();
   const [locked, setLocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const hiddenAt = React.useRef<number | undefined>(undefined);
@@ -51,6 +52,7 @@ function TauriApp() {
       invoke<AppSettings>("get_app_settings"),
       invoke<BiometricPlatformStatus>("get_biometric_platform_status"),
       invoke<NotificationTarget>("take_reminder_target").catch(() => ({ targetDate: null })),
+      invoke("get_reminder_status").catch(() => undefined),
     ])
       .then(([result, loadedSettings, biometricPlatform, notificationTarget]) => {
         if (!result.databaseReady || result.schemaVersion !== 1) {
@@ -58,7 +60,9 @@ function TauriApp() {
         }
         applyPreferences(loadedSettings);
         setSettings(loadedSettings);
-        setInitialTargetDate(notificationTarget.targetDate ?? undefined);
+        if (notificationTarget.targetDate) {
+          setNotificationNavigation({ targetDate: notificationTarget.targetDate, requestId: 1 });
+        }
         setLocked(loadedSettings.privacy.lockEnabled && biometricPlatform.supported);
         setHealth("ready");
       })
@@ -72,16 +76,33 @@ function TauriApp() {
     const updateLockOnVisibility = () => {
       if (document.visibilityState === "hidden") {
         hiddenAt.current = Date.now();
-      } else if (
-        settings?.privacy.lockEnabled &&
-        hiddenAt.current !== undefined &&
-        Date.now() - hiddenAt.current >= 30_000
-      ) {
-        setLocked(true);
+      } else {
+        void invoke("get_reminder_status").catch(() => undefined);
+        void invoke<NotificationTarget>("take_reminder_target")
+          .then((target) => {
+            const targetDate = target.targetDate;
+            if (!targetDate) return;
+            setNotificationNavigation((current) => ({
+              targetDate,
+              requestId: (current?.requestId ?? 0) + 1,
+            }));
+          })
+          .catch(() => undefined);
+        if (
+          settings?.privacy.lockEnabled &&
+          hiddenAt.current !== undefined &&
+          Date.now() - hiddenAt.current >= 30_000
+        ) {
+          setLocked(true);
+        }
       }
     };
     document.addEventListener("visibilitychange", updateLockOnVisibility);
-    return () => document.removeEventListener("visibilitychange", updateLockOnVisibility);
+    window.addEventListener("focus", updateLockOnVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", updateLockOnVisibility);
+      window.removeEventListener("focus", updateLockOnVisibility);
+    };
   }, [settings?.privacy.lockEnabled]);
 
   async function unlock() {
@@ -118,7 +139,7 @@ function TauriApp() {
   }
 
   if (health === "ready" && settings) {
-    return <App initialTargetDate={initialTargetDate} settings={settings} onSettingsChange={(next) => {
+    return <App notificationNavigation={notificationNavigation} settings={settings} onSettingsChange={(next) => {
       applyPreferences(next);
       setSettings(next);
     }} />;
