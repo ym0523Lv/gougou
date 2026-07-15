@@ -97,7 +97,7 @@ function ToolButton({
     <button
       aria-label={label}
       aria-pressed={active}
-      className={`grid min-h-11 min-w-11 flex-1 place-items-center whitespace-nowrap rounded-lg px-1 text-[clamp(0.75rem,3.5vw,0.875rem)] font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600 ${
+      className={`grid min-h-11 min-w-11 w-max flex-none place-items-center whitespace-nowrap rounded-lg px-1 text-[clamp(0.75rem,3.5vw,0.875rem)] font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600 ${
         active ? "bg-emerald-100 text-emerald-800" : "text-stone-700 hover:bg-stone-100"
       }`}
       onPointerDown={(event) => event.preventDefault()}
@@ -328,7 +328,7 @@ export function EditorView({
 
   return (
     <main className="min-h-[100dvh] bg-stone-50 pb-24 pt-[env(safe-area-inset-top)] text-stone-800">
-      <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between border-b border-stone-200 bg-stone-50/95 px-4 backdrop-blur">
+      <header className="sticky top-0 z-10 grid min-h-16 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur">
         <button
           aria-label="返回月历"
           className="grid min-h-11 min-w-11 place-items-center rounded-full text-2xl focus:outline-none focus:ring-2 focus:ring-emerald-600"
@@ -337,8 +337,8 @@ export function EditorView({
         >
           ‹
         </button>
-        <div className="text-center">
-          <p className="text-sm font-medium">{formatDateLabel(targetDate)}</p>
+        <div className="min-w-0 text-center">
+          <p className="break-words text-sm font-medium leading-tight">{formatDateLabel(targetDate)}</p>
           <p className={`text-xs ${saveState === "failed" ? "text-amber-700" : "text-stone-500"}`} role="status">
             {saveLabel(saveState)}
           </p>

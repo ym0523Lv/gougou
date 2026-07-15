@@ -1,18 +1,14 @@
 # Phase 6 当前进度记录
 
-更新时间：2026-07-14（Asia/Shanghai）
+更新时间：2026-07-15（Asia/Shanghai）
 
 ## 仓库基线
 
 - `CODEX_MASTER_SPEC.md` 已更新到 v1.7：Phase 6 当前检查点和剩余执行顺序已与本记录对齐，Phase 7 继续专门处理性能、内存、包体和发布工程。
-- Phase 1–5 连续改动已提交为 `d4485b9`，并推送到 `origin/main`。
-- 本文记录的 Phase 6 Android 工程、真机修复和验收结果尚未提交或推送。
+- Phase 1–5 连续改动已提交为 `d4485b9`；Phase 6 Android 工程、真机修复和截至 2026-07-14 的验收结果已提交为 `7c52c23`。
+- `main` 与 `origin/main` 已对齐到 `7c52c23`；2026-07-15 继续完成图片回收、备份恢复和提醒边界闭环，并对 200% 字体发现的编辑器布局缺陷做了最小修复。
 
-当前未提交范围：
-
-- 已修改：Android reminder 插件、`src/App.tsx`、`src/EditorView.tsx`、`src/main.tsx`、`src/SettingsView.tsx`。
-- 新增：`PHASE6_PROGRESS.md`、Tauri 生成的 `src-tauri/gen/` Android 工程。
-- 工作区中没有需要丢弃的已知用户改动；继续工作时不得 reset 或覆盖这些变更。
+开始 2026-07-15 验收前工作区干净；当前未提交范围为 `src/EditorView.tsx`、`CODEX_MASTER_SPEC.md` 和 `PHASE6_PROGRESS.md`。
 
 ## Android 环境
 
@@ -91,7 +87,33 @@
 - 真机发现前端硬编码的 `gougou-asset://localhost/` 在 Android WebView 中显示为破损图片；已改用 Tauri `convertFileSrc` 生成平台对应的受控协议 URL。
 - 修复 APK 覆盖安装并重启应用后，2026-07-14 日记中的图片正常显示，原有文字、勾选和图片引用均保持。
 - 编辑器底栏七个按钮改为等宽弹性布局，字号使用 `clamp(0.75rem, 3.5vw, 0.875rem)` 按屏幕宽度自适应；当前 1172×2748 设备上七个中文标签均完整横排，保留 44px 最小触控高度。
-- 删除图片引用后的安全回收和重新插入仍待继续验证。
+- 2026-07-15 通过真实编辑器删除 2026-07-14 的图片节点：revision 从 8 增加到 9，原文字和勾选保持，Markdown 不再包含资产路径，`entry_assets` 引用清空，零引用原图与 `.thumb.webp` 缩略图同步回收。
+- 通过 Android 系统图片选择器重新插入后，revision 从 9 增加到 10，新原图、缩略图和 `entry_assets` 引用一致；强制停止并冷启动后重开同日日记，文字、勾选和图片均正常显示。
+
+### 备份导出与恢复
+
+- 2026-07-15 导出 `gougou-backup-20260715.zip`，ZIP 仅包含 `manifest.json`、`entries.json` 和 1 个被引用原图；format v1、资源大小、SHA-256、1 个日期、1 条引用和 10 项设置均一致。
+- 仅将 manifest 中资源 SHA-256 改为全零后，`inspect_backup` 明确返回 `invalid_backup`；拒绝前后数据库逻辑摘要和原图/缩略图 SHA-256 完全相同。
+- 为证明恢复非空跑，临时去除图片引用、取消勾选并把主题从 `system` 改为 `dark`；有效备份通过检查后以 `replace_all` 写入 1 个日期，恢复后数据库逻辑摘要与导出前完全相同。
+- 恢复后 2026-07-14 的文字、勾选、revision 10、图片引用和原图 SHA-256 均复原，冷启动后图片正常显示；主题恢复为 `system`。
+- 冷启动后原生提醒缓存与恢复设置一致：开启、22:02、尽量准时、无静默日和暂停；AlarmManager 重建为 2026-07-15 22:02 的 `RTC_WAKEUP`、`window=0`、`exactAllowReason=allow-listed`。
+- 备份格式当前只携带 `entry_assets` 引用的原图，不携带派生 `.thumb.webp`；当前受控预览仍使用原图且功能正常，Phase 7 实施缩略图与懒加载时需同时确定恢复后的派生图再生成策略。
+
+### 提醒剩余边界
+
+- 把周三设为静默日后，下一次提醒从 2026-07-15 22:02 立即跳到 7 月 16 日 22:02；清除静默日后立即回到 7 月 15 日。
+- 暂停至 2026-07-22（含当日）后，下一次提醒立即跳到 7 月 23 日 22:02；清除暂停后立即回到 7 月 15 日。
+- 通过月历真实 UI 勾选 2026-07-15 后，原生 `skipDates` 包含当天，下一次提醒立即跳到 7 月 16 日 22:02；取消勾选并用既有空行清理规则删除测试行后，提醒回到 7 月 15 日。
+- 上述每一次重排均为 `RTC_WAKEUP`、`window=0`、`exactAllowReason=allow-listed`；验收后数据库逻辑摘要恢复到验收前值，仅保留 2026-07-14 的文字、勾选和图片，静默日与暂停均为空。
+
+### 外观、减少动画与 200% 字体
+
+- 设置页深色、浅色和跟随系统三态均通过：控件值、`user_settings`、根节点 `data-theme`、`color-scheme` 和计算背景一致；验收后恢复为 `system`。
+- 应用内“减少动画”开关可正确持久化并设置 `data-reduce-motion=true`，CSS 会将滚动改为 `auto`、将 transition/animation 缩短至 `0.01ms`；验收后恢复为关闭。
+- 当前 vivo Android 15 / WebView 在三项系统动画缩放为 0 或厂商 `reduced_dynamic_effects=1` 时，`prefers-reduced-motion: reduce` 仍返回 `false`；这是当前设备/WebView 未映射的平台限制，不用应用内开关冒充系统结果。三项缩放已恢复 `1.0`，厂商键已恢复 `0`。
+- 字体缩放设为 2.0 后，月历页根字号为 32px、无水平溢出、主要控件最小高度为 44px；但编辑器顶栏日期侵入状态栏，七个工具标签在约 46px 宽的按钮中需要约 68px 内容宽度，真机画面确认已互相覆盖。
+- `EditorView` 已做最小修复：顶栏改为三列网格并允许中间日期换行，工具按钮改为按内容宽度且不收缩，超出时复用现有横向滚动。`npm run build` 和 Android arm64 debug APK 构建已通过，但新 APK 尚未覆盖安装，200% 字体真机回归留待下一次继续。
+- 验收结束前系统字体缩放已恢复为 `1.0`。
 
 ## 最新已安装修复
 
@@ -113,12 +135,22 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 
 该 APK 当前大小为 382,904,413 bytes，`aapt` 确认只包含 `arm64-v8a`，已通过 Kotlin/Gradle 编译并安装。后续覆盖安装仍必须使用 `-r -t` 以保留应用数据和调试包资格。
 
+最新已构建、待覆盖安装 APK：
+
+```text
+src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+该 APK 于 2026-07-15 22:07 构建，大小为 382,904,541 bytes，SHA-256 为 `a34d68e92aeef16726bfa20afa88bb384bf957ed5f2d0c58052d5d6635ebca15`。构建时在官方分发网络超时后使用已校验的本地 Gradle 8.14.3 ZIP；构建完成后 wrapper 已恢复官方 `https://services.gradle.org/` 地址。
+
 ## 已通过的自动检查
 
 - `git diff --check`。
 - `npm run build`，TypeScript 和 Vite 生产构建通过。
 - `cargo fmt --all -- --check`。
 - `cargo test --quiet`：15 个 Rust 测试通过。
+- 2026-07-15 重跑 `npm run build` 和 `cargo test --quiet`，结果仍通过；仅有已知的 Vite 大 chunk 提示。
+- 200% 字体布局修复后再次通过 `npm run build` 和 Android arm64 debug APK 真实 Gradle 构建；仅有已知的 Vite 大 chunk 与 Gradle 弃用提示。
 - Android arm64 debug APK 多次完成真实 Gradle 构建；Gougou Kotlin 代码无编译错误。
 - 2026-07-14 最新 APK 的 SHA-256 为 `045ad7d4c706047a757a7599f876aa8d3f6f6c6e3de1302fe5e6b7667ec38d8c`；Gradle wrapper 已恢复官方分发地址。
 - 合并 Manifest 已确认包含通知、重启、精确闹钟、生物识别权限和两个 Reminder Receiver。
@@ -127,11 +159,11 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 ## 当前结论与下一执行点
 
 - Phase 6 尚未完成，不能输出 `Phase 6 Device Matrix Ready for Optimization`，也不能进入 Release Candidate 状态。
-- 当前没有需要继续修改的已知通知或隐私锁代码；下一项是完成图片引用删除与安全回收闭环。
+- 当前没有需要继续修改的已知通知、隐私锁、图片回收、备份恢复或提醒边界代码；下一项是覆盖安装新 APK 并回归 200% 字体修复。
 
-1. 删除当前日记中的图片引用，确认正文和 `entry_assets` 更新，且无引用的原图与缩略图被安全回收。
-2. 重新插入图片并重启应用，复核引用重建和持久化。
-3. 继续备份导出、篡改包拒绝、有效恢复和恢复一致性矩阵。
+1. 使用 `-r -t --no-streaming` 覆盖安装 SHA-256 为 `a34d68e9…ca15` 的新 APK，确认原有日记、图片、勾选与提醒缓存保留。
+2. 重新将字体设为 2.0，复核编辑器日期顶栏不侵入状态栏，七个工具标签不覆盖、可横向滚动且触控高度不小于 44px；完成后再恢复字体 1.0。
+3. 继续小屏、横屏、软键盘、系统返回键、安全区和 TalkBack 真实语音/焦点顺序验收。
 
 ## 接下来按顺序执行
 
@@ -155,27 +187,35 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 - 已通过：开启认证、后台 31 秒重锁、锁屏内容遮挡、取消后保持锁定、成功解锁、数据保持、关闭认证及取消保护。
 - 待持机人工验证：连续失败、临时锁定和设备凭据回退；自动验收不故意触发设备级生物识别锁定。
 
-### 4. 图片引用与安全回收（当前下一项）
+### 4. 图片引用与安全回收（已完成）
 
 1. 删除 2026-07-14 日记中的当前图片，等待自动保存并重新打开该日记。
 2. 确认 Markdown 不再包含资源路径，`entry_assets` 不再引用该资源；仅当引用数为零时删除原图与 `.thumb.webp`。
 3. 重新选择图片，确认新资源引用建立；覆盖安装或重启应用后图片继续显示。
 
-### 5. 备份导出与恢复
+上述三项已于 2026-07-15 在 vivo V2337A / Android 15 通过；本轮未发现需要修复的代码缺陷。
+
+### 5. 备份导出与恢复（已完成）
 
 1. 导出包含当前日记、图片和设置的有效备份，确认 ZIP 清单、结构化数据、资源及哈希齐全。
 2. 制造单一可识别篡改，确认检查或恢复明确拒绝且不改变现有数据库、图片和设置。
 3. 使用有效备份执行恢复，确认文字、勾选、图片引用、提醒和外观设置一致。
 
-### 6. 提醒剩余边界
+上述三项已于 2026-07-15 在 vivo V2337A / Android 15 通过；本轮未发现需要修复的代码缺陷。
+
+### 6. 提醒剩余边界（已完成）
 
 - 验证静默日、暂停一周和当天打勾后跳过提醒，并确认设置修改后原生队列立即重排。
 - 精确闹钟独立降级在当前 vivo 上不可操作，维持已记录的设备限制，不关闭“允许后台高耗电”。
 
-### 7. 外观、布局与辅助功能
+静默日、暂停和当天打勾跳过已于 2026-07-15 在 vivo V2337A / Android 15 通过；本轮未发现需要修复的代码缺陷。
+
+### 7. 外观、布局与辅助功能（当前下一项）
 
 - 依次验证动态字体和 200% 大字体、TalkBack、系统减少动画、浅色/深色/跟随系统。
 - 验证小屏、横屏、软键盘、系统返回键、安全区和编辑器底栏；底栏当前真机自适应结果作为回归基线。
+
+主题三态和应用内减少动画已通过；系统减少动画在当前 WebView 上未映射媒体查询，已记录设备限制。200% 字体发现的编辑器顶栏和工具栏缺陷已做最小修复并通过 APK 构建，尚待覆盖安装后的真机回归。
 
 ### 8. 设备重启恢复
 
