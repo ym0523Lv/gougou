@@ -1,14 +1,15 @@
 # Phase 6 当前进度记录
 
-更新时间：2026-07-15（Asia/Shanghai）
+更新时间：2026-07-20（Asia/Shanghai）
 
 ## 仓库基线
 
 - `CODEX_MASTER_SPEC.md` 已更新到 v1.7：Phase 6 当前检查点和剩余执行顺序已与本记录对齐，Phase 7 继续专门处理性能、内存、包体和发布工程。
 - Phase 1–5 连续改动已提交为 `d4485b9`；Phase 6 Android 工程、真机修复和截至 2026-07-14 的验收结果已提交为 `7c52c23`。
-- `main` 与 `origin/main` 已对齐到 `7c52c23`；2026-07-15 继续完成图片回收、备份恢复和提醒边界闭环，并对 200% 字体发现的编辑器布局缺陷做了最小修复。
+- 2026-07-15 完成图片回收、备份恢复、提醒边界闭环和 200% 字体布局修复，并提交为 `a09890f`；本轮开始时 `main` 与 `origin/main` 均位于该提交。
+- 2026-07-20 完成该 APK 覆盖安装和 200% 字体真机回归，并修复真机发现的软键盘遮挡工具栏问题。
 
-开始 2026-07-15 验收前工作区干净；当前未提交范围为 `src/EditorView.tsx`、`CODEX_MASTER_SPEC.md` 和 `PHASE6_PROGRESS.md`。
+开始 2026-07-20 验收前工作区干净；本轮变更范围为 `src/EditorView.tsx`、Android `MainActivity.kt`、Android Manifest、`CODEX_MASTER_SPEC.md` 和 `PHASE6_PROGRESS.md`。
 
 ## Android 环境
 
@@ -26,7 +27,7 @@
 - 系统：Android 15 / API 35。
 - ABI：`arm64-v8a`。
 - 应用 ID：`com.ym0523lv.gougou`，版本 `0.1.0`。
-- 无线 ADB 端口在锁屏后可能失效或变化；最后一次成功连接端口为 `192.168.2.43:46251`，继续前仍需确认 transport 为 `device`。
+- 无线 ADB 端口在锁屏后可能失效或变化；2026-07-20 使用的端口为 `192.168.2.43:35107`，继续前仍需确认 transport 为 `device`。
 - vivo 的“后台耗电管理”已为 Gougou 选择“允许后台高耗电”。这个设置必须保留，否则系统会以 `Reason=frozen` 冻结应用并移除提醒闹钟。
 - 当前收尾状态：通知权限允许、精确提醒保持启用、隐私锁在完成关闭认证后为关闭；2026-07-14 日记保留文字、勾选和一张已持久化图片。
 
@@ -112,8 +113,11 @@
 - 应用内“减少动画”开关可正确持久化并设置 `data-reduce-motion=true`，CSS 会将滚动改为 `auto`、将 transition/animation 缩短至 `0.01ms`；验收后恢复为关闭。
 - 当前 vivo Android 15 / WebView 在三项系统动画缩放为 0 或厂商 `reduced_dynamic_effects=1` 时，`prefers-reduced-motion: reduce` 仍返回 `false`；这是当前设备/WebView 未映射的平台限制，不用应用内开关冒充系统结果。三项缩放已恢复 `1.0`，厂商键已恢复 `0`。
 - 字体缩放设为 2.0 后，月历页根字号为 32px、无水平溢出、主要控件最小高度为 44px；但编辑器顶栏日期侵入状态栏，七个工具标签在约 46px 宽的按钮中需要约 68px 内容宽度，真机画面确认已互相覆盖。
-- `EditorView` 已做最小修复：顶栏改为三列网格并允许中间日期换行，工具按钮改为按内容宽度且不收缩，超出时复用现有横向滚动。`npm run build` 和 Android arm64 debug APK 构建已通过，但新 APK 尚未覆盖安装，200% 字体真机回归留待下一次继续。
-- 验收结束前系统字体缩放已恢复为 `1.0`。
+- `EditorView` 已做最小修复：顶栏改为三列网格并允许中间日期换行，工具按钮改为按内容宽度且不收缩，超出时复用现有横向滚动；该版本已完成覆盖安装和 200% 字体真机回归。
+- 2026-07-20 覆盖安装后，200% 字体下日期标题位于状态栏下方并可换行；七个工具标签不重叠，工具栏可横向滚动到“撤销”和“重做”，按钮实测高度 159 px。
+- 同轮发现 WebView 126 在软键盘显示时不会更新 `visualViewport`，工具栏仍停留在物理屏幕底部并被 IME 覆盖。Android Manifest 已加入 `adjustResize`；`MainActivity` 通过 `WindowInsetsCompat.Type.ime()` 将原生 IME inset 写入 CSS 变量，前端取它与 `visualViewport` 偏移的较大值，兼容当前 WebView 与未来直接调整 visual viewport 的实现。
+- 最终修复 APK 已在系统字体 1.0 下复测：IME 显示时七个工具按钮从 `[2567,2713]` 移至键盘上方 `[1530,1677]`，IME 关闭后回到底部；系统返回先关闭键盘，再返回月历且 Activity 不退出。最终修复后的 200% + IME 组合尚未再次执行。
+- 系统字体缩放已恢复并核验为 `1.0`；本轮创建的手机公共目录测试文件、Gougou 外部缓存节点和本机临时数据库/截图均已删除。后续任何系统级设置变更、TalkBack、旋转或设备重启必须先取得用户明确授权，不能把 Gougou 应用验收授权扩大为设备设置授权。
 
 ## 最新已安装修复
 
@@ -126,6 +130,7 @@
 - 设置页从系统权限页返回时会刷新实际提醒状态。
 - Android 图片预览使用 Tauri 跨平台自定义协议 URL，不再硬编码桌面协议格式。
 - 编辑器底栏文字使用等宽弹性按钮和流式字号，不再逐字换行或截断“重做”。
+- Android 将真实 IME inset 转交前端，旧版 WebView 上软键盘不再覆盖编辑器工具栏。
 
 最新已安装 APK：
 
@@ -133,15 +138,7 @@
 src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
-该 APK 当前大小为 382,904,413 bytes，`aapt` 确认只包含 `arm64-v8a`，已通过 Kotlin/Gradle 编译并安装。后续覆盖安装仍必须使用 `-r -t` 以保留应用数据和调试包资格。
-
-最新已构建、待覆盖安装 APK：
-
-```text
-src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-```
-
-该 APK 于 2026-07-15 22:07 构建，大小为 382,904,541 bytes，SHA-256 为 `a34d68e92aeef16726bfa20afa88bb384bf957ed5f2d0c58052d5d6635ebca15`。构建时在官方分发网络超时后使用已校验的本地 Gradle 8.14.3 ZIP；构建完成后 wrapper 已恢复官方 `https://services.gradle.org/` 地址。
+该 APK 于 2026-07-20 构建并使用 `-r -t --no-streaming` 覆盖安装，大小为 382,904,541 bytes，SHA-256 为 `32e8608914b80957c95562317dbe7f30311383f9faa7d7d1a44bcd57fbeafaf5`。构建时在官方分发网络超时后使用已校验的本地 Gradle 8.14.3 ZIP；构建完成后 wrapper 已恢复官方 `https://services.gradle.org/` 地址。覆盖安装前后首次安装时间不变，数据库二进制 SHA-256、2026-07-14 的文字/勾选/revision 10/图片引用、图片 SHA-256、设置和提醒缓存均保持一致。
 
 ## 已通过的自动检查
 
@@ -152,6 +149,7 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 - 2026-07-15 重跑 `npm run build` 和 `cargo test --quiet`，结果仍通过；仅有已知的 Vite 大 chunk 提示。
 - 200% 字体布局修复后再次通过 `npm run build` 和 Android arm64 debug APK 真实 Gradle 构建；仅有已知的 Vite 大 chunk 与 Gradle 弃用提示。
 - Android arm64 debug APK 多次完成真实 Gradle 构建；Gougou Kotlin 代码无编译错误。
+- 2026-07-20 IME inset 修复后再次通过 `git diff --check`、`npm run build`、`cargo fmt --all -- --check`、15 个 Rust 测试和 Android arm64 debug APK 真实 Gradle/Kotlin 构建；仅有已知的 Vite 大 chunk 与 Gradle 弃用提示。
 - 2026-07-14 最新 APK 的 SHA-256 为 `045ad7d4c706047a757a7599f876aa8d3f6f6c6e3de1302fe5e6b7667ec38d8c`；Gradle wrapper 已恢复官方分发地址。
 - 合并 Manifest 已确认包含通知、重启、精确闹钟、生物识别权限和两个 Reminder Receiver。
 - 当前仅有 Tauri/Gradle 生成代码的弃用提示，以及已知的 Vite 大 chunk 提示。
@@ -159,11 +157,11 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 ## 当前结论与下一执行点
 
 - Phase 6 尚未完成，不能输出 `Phase 6 Device Matrix Ready for Optimization`，也不能进入 Release Candidate 状态。
-- 当前没有需要继续修改的已知通知、隐私锁、图片回收、备份恢复或提醒边界代码；下一项是覆盖安装新 APK 并回归 200% 字体修复。
+- 当前没有需要继续修改的已知通知、隐私锁、图片回收、备份恢复或提醒边界代码；200% 顶栏和工具标签回归已通过，软键盘遮挡已修复并在字体 1.0 下通过。
 
-1. 使用 `-r -t --no-streaming` 覆盖安装 SHA-256 为 `a34d68e9…ca15` 的新 APK，确认原有日记、图片、勾选与提醒缓存保留。
-2. 重新将字体设为 2.0，复核编辑器日期顶栏不侵入状态栏，七个工具标签不覆盖、可横向滚动且触控高度不小于 44px；完成后再恢复字体 1.0。
-3. 继续小屏、横屏、软键盘、系统返回键、安全区和 TalkBack 真实语音/焦点顺序验收。
+1. 仅在用户明确同意系统级字体操作后，补做最终 IME 修复在 200% 字体下的组合回归，并在结束后立即恢复原值。
+2. 仅在用户逐项明确授权后继续横屏、TalkBack、设备重启等会改变手机全局状态或影响当前使用环境的测试；小屏需要独立设备或模拟器。
+3. 在不改变设备设置的范围内继续检查 Gougou 自身安全区与应用内焦点顺序；iOS 对等验收仍受当前环境阻塞。
 
 ## 接下来按顺序执行
 
@@ -215,7 +213,7 @@ src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.
 - 依次验证动态字体和 200% 大字体、TalkBack、系统减少动画、浅色/深色/跟随系统。
 - 验证小屏、横屏、软键盘、系统返回键、安全区和编辑器底栏；底栏当前真机自适应结果作为回归基线。
 
-主题三态和应用内减少动画已通过；系统减少动画在当前 WebView 上未映射媒体查询，已记录设备限制。200% 字体发现的编辑器顶栏和工具栏缺陷已做最小修复并通过 APK 构建，尚待覆盖安装后的真机回归。
+主题三态和应用内减少动画已通过；系统减少动画在当前 WebView 上未映射媒体查询，已记录设备限制。200% 字体下的编辑器顶栏、标签宽度和横向滚动已通过；软键盘遮挡修复已在字体 1.0 下通过，最终 200% + IME 组合回归需用户明确授权系统级字体操作后再执行。
 
 ### 8. 设备重启恢复
 

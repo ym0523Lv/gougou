@@ -376,7 +376,7 @@ export function EditorView({
       <nav
         aria-label="编辑格式"
         className="fixed inset-x-0 z-20 border-t border-stone-200 bg-white/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur"
-        style={{ bottom: keyboardOffset }}
+        style={{ bottom: `max(${keyboardOffset}px, var(--keyboard-inset-height, 0px))` }}
       >
         <div className="mx-auto flex max-w-2xl gap-0.5 overflow-x-auto">
           <ToolButton active={editor?.isActive("bold")} label="粗体" onClick={() => editor?.chain().focus().toggleBold().run()} />
