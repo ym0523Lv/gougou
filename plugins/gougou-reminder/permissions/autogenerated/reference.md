@@ -70,6 +70,32 @@ Denies the get_status command without any pre-configured scope.
 <tr>
 <td>
 
+`gougou-reminder:allow-open-background-settings`
+
+</td>
+<td>
+
+Enables the open_background_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`gougou-reminder:deny-open-background-settings`
+
+</td>
+<td>
+
+Denies the open_background_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `gougou-reminder:allow-request-permission`
 
 </td>

@@ -784,6 +784,13 @@ fn request_reminder_permission(app: AppHandle) -> CommandResult<ReminderStatus> 
 }
 
 #[tauri::command]
+fn open_reminder_background_settings(app: AppHandle) -> CommandResult<ReminderStatus> {
+    app.gougou_reminder()
+        .open_background_settings()
+        .map_err(|_| CommandError::reminder_failed())
+}
+
+#[tauri::command]
 fn sync_reminder(
     app: AppHandle,
     reminder: ReminderSettings,
@@ -2190,6 +2197,7 @@ pub fn run() {
             get_reminder_status,
             take_reminder_target,
             request_reminder_permission,
+            open_reminder_background_settings,
             sync_reminder,
             save_backup_copy,
             pick_backup_file,

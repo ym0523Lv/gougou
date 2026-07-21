@@ -22,6 +22,8 @@ pub struct ReminderStatus {
     pub exact_alarm_allowed: bool,
     pub effective_precise: bool,
     pub scheduled_count: u32,
+    #[serde(default)]
+    pub background_settings_available: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

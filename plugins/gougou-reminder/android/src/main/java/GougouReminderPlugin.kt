@@ -3,6 +3,7 @@ package com.ym0523lv.gougou.reminder
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -50,6 +51,14 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
             put("exactAlarmAllowed", status.exactAlarmAllowed)
             put("effectivePrecise", status.effectivePrecise)
             put("scheduledCount", status.scheduledCount)
+            put("backgroundSettingsAvailable", backgroundSettingsIntent() != null)
+        }
+    }
+
+    private fun backgroundSettingsIntent(): Intent? {
+        val intent = Intent("com.iqoo.secure.BGSTARTUPMANAGER")
+        return intent.takeIf {
+            activity.packageManager.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY) != null
         }
     }
 
@@ -157,5 +166,11 @@ class GougouReminderPlugin(private val activity: Activity) : Plugin(activity) {
         preferences.edit().remove(TARGET_DATE).apply()
         activity.intent?.removeExtra(TARGET_DATE)
         invoke.resolve(JSObject().apply { put("targetDate", date) })
+    }
+
+    @Command
+    fun openBackgroundSettings(invoke: Invoke) {
+        backgroundSettingsIntent()?.let(activity::startActivity)
+        invoke.resolve(status())
     }
 }

@@ -40,7 +40,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::request_permission,
             commands::sync_schedule,
             commands::cancel_all,
-            commands::take_notification_target
+            commands::take_notification_target,
+            commands::open_background_settings
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

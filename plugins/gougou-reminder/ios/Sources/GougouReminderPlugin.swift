@@ -41,6 +41,7 @@ class GougouReminderPlugin: Plugin, UNUserNotificationCenterDelegate {
           "exactAlarmAllowed": false,
           "effectivePrecise": effectivePrecise,
           "scheduledCount": requests.filter { $0.identifier.hasPrefix("gougou-reminder-") }.count,
+          "backgroundSettingsAvailable": false,
         ])
       }
     }
@@ -125,6 +126,10 @@ class GougouReminderPlugin: Plugin, UNUserNotificationCenterDelegate {
     let date = defaults.string(forKey: "gougouNotificationTarget")
     defaults.removeObject(forKey: "gougouNotificationTarget")
     invoke.resolve(["targetDate": date as Any])
+  }
+
+  @objc public func openBackgroundSettings(_ invoke: Invoke) {
+    resolveStatus(invoke)
   }
 
   func userNotificationCenter(

@@ -123,7 +123,7 @@ export function BackupTestView({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <main className="min-h-dvh bg-stone-50 px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-stone-800">
+    <main className="min-h-dvh bg-stone-50 px-5 pb-10 pt-[max(1.5rem,env(safe-area-inset-top))] text-stone-800">
       <header className="mx-auto flex max-w-xl items-center gap-3">
         <button
           aria-label="返回月历"

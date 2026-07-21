@@ -4,6 +4,7 @@ const COMMANDS: &[&str] = &[
     "sync_schedule",
     "cancel_all",
     "take_notification_target",
+    "open_background_settings",
 ];
 
 fn main() {

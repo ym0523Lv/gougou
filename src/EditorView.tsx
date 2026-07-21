@@ -327,8 +327,8 @@ export function EditorView({
   }
 
   return (
-    <main className="min-h-[100dvh] bg-stone-50 pb-24 pt-[env(safe-area-inset-top)] text-stone-800">
-      <header className="sticky top-0 z-10 grid min-h-16 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur">
+    <main className="min-h-[100dvh] bg-stone-50 pb-24 text-stone-800">
+      <header className="sticky top-0 z-10 grid min-h-16 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-stone-200 bg-stone-50/95 px-4 pb-2 pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur">
         <button
           aria-label="返回月历"
           className="grid min-h-11 min-w-11 place-items-center rounded-full text-2xl focus:outline-none focus:ring-2 focus:ring-emerald-600"

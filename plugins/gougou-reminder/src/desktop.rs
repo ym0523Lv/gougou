@@ -36,4 +36,8 @@ impl<R: Runtime> GougouReminder<R> {
     pub fn take_notification_target(&self) -> crate::Result<NotificationTarget> {
         Ok(NotificationTarget::default())
     }
+
+    pub fn open_background_settings(&self) -> crate::Result<ReminderStatus> {
+        self.get_status()
+    }
 }

@@ -53,4 +53,10 @@ impl<R: Runtime> GougouReminder<R> {
             .run_mobile_plugin("takeNotificationTarget", ())
             .map_err(Into::into)
     }
+
+    pub fn open_background_settings(&self) -> crate::Result<ReminderStatus> {
+        self.0
+            .run_mobile_plugin("openBackgroundSettings", ())
+            .map_err(Into::into)
+    }
 }

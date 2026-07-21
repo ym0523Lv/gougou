@@ -99,6 +99,7 @@ export function SettingsView({
               exactAlarmAllowed: false,
               effectivePrecise: false,
               scheduledCount: 0,
+              backgroundSettingsAvailable: false,
             });
           }
         });
@@ -196,7 +197,7 @@ export function SettingsView({
   }
 
   return (
-    <main className="min-h-dvh bg-stone-50 px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-stone-800">
+    <main className="min-h-dvh bg-stone-50 px-5 pb-12 pt-[max(1.5rem,env(safe-area-inset-top))] text-stone-800">
       <header className="mx-auto flex max-w-xl items-center gap-3">
         <button aria-label="返回月历" className="grid size-11 place-items-center rounded-full text-2xl focus:outline-none focus:ring-2 focus:ring-emerald-600" onClick={onBack} type="button">‹</button>
         <div><p className="text-sm text-stone-500">勾勾</p><h1 className="text-xl font-semibold">设置</h1></div>
@@ -247,6 +248,23 @@ export function SettingsView({
             }} type="button">恢复提醒</button>}
           </div>
           <p className="mt-3 text-sm text-stone-500">{reminderStatus?.supported === false ? "当前平台不支持原生提醒。" : reminderStatus?.permission === "denied" ? "系统通知权限已关闭，可在系统设置中恢复。" : reminderStatus?.effectivePrecise ? "系统已允许尽量准时。" : draft.reminder.precise ? "当前按大约时间提醒。" : "使用大约时间提醒。"}</p>
+          {draft.reminder.enabled && reminderStatus?.backgroundSettingsAvailable && (
+            <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="leading-6">部分 vivo 设备会拦截开机后的提醒恢复。请在系统“自启动”中允许勾勾。</p>
+              <button
+                className="mt-3 min-h-11 rounded-xl border border-amber-300 bg-white px-4 disabled:opacity-50"
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  const next = await invoke<ReminderStatus>("open_reminder_background_settings");
+                  setReminderStatus(next);
+                  setStatus("请在系统“自启动”中允许勾勾。");
+                })}
+                type="button"
+              >
+                允许重启后提醒
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border border-stone-200 bg-white p-5">

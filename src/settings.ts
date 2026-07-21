@@ -20,6 +20,7 @@ export type ReminderStatus = {
   exactAlarmAllowed: boolean;
   effectivePrecise: boolean;
   scheduledCount: number;
+  backgroundSettingsAvailable: boolean;
 };
 
 export function applyPreferences(settings: AppSettings) {

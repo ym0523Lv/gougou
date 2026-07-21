@@ -31,3 +31,10 @@ pub(crate) async fn take_notification_target<R: Runtime>(
 ) -> Result<NotificationTarget> {
     app.gougou_reminder().take_notification_target()
 }
+
+#[command]
+pub(crate) async fn open_background_settings<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<ReminderStatus> {
+    app.gougou_reminder().open_background_settings()
+}
