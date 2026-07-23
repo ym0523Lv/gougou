@@ -1,4 +1,10 @@
-# Phase 6 当前进度记录
+# Android 功能 Alpha 验收记录（原 Phase 6）
+
+> 历史快照：本文保留截至 2026-07-21 的 Android 真机步骤、环境与证据，不再作为当前计划维护。
+>
+> 当前产品规范见 [`CODEX_MASTER_SPEC.md`](../../CODEX_MASTER_SPEC.md)，当前执行状态见 [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md)。
+>
+> 不要按本文“接下来”章节继续执行；其中顺序已经被新版规范取代。
 
 更新时间：2026-07-21（Asia/Shanghai）
 

@@ -1,4 +1,8 @@
-# Phase 5 当前进度记录
+# Phase 5 实施归档
+
+> 历史快照：本文保留截至 2026-07-13 的实施上下文，其中若与当前代码或产品规范冲突，以 [`CODEX_MASTER_SPEC.md`](../../CODEX_MASTER_SPEC.md) 和 [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md) 为准。
+>
+> 不要按本文的“必须继续检查”或旧阶段顺序继续执行。
 
 更新时间：2026-07-13（Asia/Shanghai）
 
